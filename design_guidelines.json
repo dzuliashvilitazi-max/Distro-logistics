@@ -1,0 +1,232 @@
+{
+  "project_info": {
+    "name": "Distro Logistics",
+    "description": "High-contrast B2B Distribution & Logistics Web Application designed for Suppliers, Retailers, and Platform Admins.",
+    "app_type": "hybrid_fullstack",
+    "archetype": "TACTICAL_MODERN_B2B_SAAS",
+    "theme_support": "Dual Mode (Dark / Light toggle with High-Contrast aesthetic)"
+  },
+  "design_principles": [
+    "Fusion over Imitation: High-density tactical control center meets clean Swiss typography and smooth micro-interactions.",
+    "Tactical High Contrast: Sharp boundaries, 1px solid structural borders, vivid functional accents (Emerald for delivered, Amber for processing, Electric Indigo for primary action, Coral Red for alerts).",
+    "B2B Frictionless Efficiency: Tiered bulk pricing visualization, minimum order quantity (MOQ) controls, quick order batching, and real-time order tracking status.",
+    "Role-Aware Spatial Design: Seamless view switches between Retailer Store Owner, Supplier/Distributor, and System Admin with persistent role indicator badges."
+  ],
+  "typography": {
+    "heading_font": "Plus Jakarta Sans, sans-serif",
+    "body_font": "Plus Jakarta Sans, sans-serif",
+    "mono_font": "JetBrains Mono, monospace",
+    "font_imports": "@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');",
+    "scale": {
+      "h1_hero": "text-4xl sm:text-5xl lg:text-6xl font-extrabold tracking-tight leading-none",
+      "h2_section": "text-2xl sm:text-3xl lg:text-4xl font-bold tracking-tight",
+      "h3_subsection": "text-xl sm:text-2xl font-semibold tracking-tight",
+      "h4_card": "text-lg sm:text-xl font-semibold",
+      "body_regular": "text-base font-normal leading-relaxed",
+      "body_small": "text-sm font-medium leading-normal",
+      "label_micro": "text-xs font-semibold tracking-wider uppercase font-mono"
+    }
+  },
+  "colors": {
+    "dark_mode": {
+      "bg_root": "#0A0D14",
+      "bg_surface": "#121824",
+      "bg_card": "#1A2234",
+      "bg_card_hover": "#222D42",
+      "border_subtle": "#2A364F",
+      "border_accent": "#3B82F6",
+      "text_primary": "#F8FAFC",
+      "text_secondary": "#94A3B8",
+      "text_muted": "#64748B",
+      "accent_primary": "#3B82F6",
+      "accent_primary_hover": "#2563EB",
+      "accent_secondary": "#6366F1",
+      "status_pending": {
+        "bg": "#FEF3C7",
+        "text": "#D97706",
+        "badge": "bg-amber-500/10 text-amber-400 border-amber-500/30"
+      },
+      "status_processing": {
+        "bg": "#DBEAFE",
+        "text": "#2563EB",
+        "badge": "bg-blue-500/10 text-blue-400 border-blue-500/30"
+      },
+      "status_in_transit": {
+        "bg": "#E0E7FF",
+        "text": "#4F46E5",
+        "badge": "bg-indigo-500/10 text-indigo-400 border-indigo-500/30"
+      },
+      "status_delivered": {
+        "bg": "#D1FAE5",
+        "text": "#059669",
+        "badge": "bg-emerald-500/10 text-emerald-400 border-emerald-500/30"
+      },
+      "status_cancelled": {
+        "bg": "#FEE2E2",
+        "text": "#DC2626",
+        "badge": "bg-rose-500/10 text-rose-400 border-rose-500/30"
+      }
+    },
+    "light_mode": {
+      "bg_root": "#F8FAFC",
+      "bg_surface": "#FFFFFF",
+      "bg_card": "#FFFFFF",
+      "bg_card_hover": "#F1F5F9",
+      "border_subtle": "#E2E8F0",
+      "border_accent": "#2563EB",
+      "text_primary": "#0F172A",
+      "text_secondary": "#475569",
+      "text_muted": "#94A3B8",
+      "accent_primary": "#2563EB",
+      "accent_primary_hover": "#1D4ED8",
+      "accent_secondary": "#4F46E5"
+    }
+  },
+  "layout_and_grids": {
+    "header": {
+      "style": "Fixed top nav with glassmorphism (backdrop-blur-md), border-b, search bar, role dropdown, notification bell indicator, cart drawer trigger, dark/light theme toggle switch.",
+      "padding": "px-4 lg:px-8 py-3.5"
+    },
+    "dashboard_grid": {
+      "metrics_row": "grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6 mb-8",
+      "main_content_split": "grid grid-cols-1 lg:grid-cols-12 gap-6 lg:gap-8",
+      "catalog_grid": "grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6"
+    },
+    "containers": "max-w-7xl mx-auto px-4 sm:px-6 lg:px-8"
+  },
+  "user_roles_architecture": {
+    "retailer": {
+      "name": "Retailer / Store Owner",
+      "core_actions": [
+        "Browse B2B Catalog with category filters (Beverages, Groceries, Snacks, Bulk Pantry)",
+        "View B2B Wholesale Tier Pricing & MOQ (Minimum Order Quantity)",
+        "Batch add items to B2B Bulk Cart with quantity steppers (+10, +50, +100 units)",
+        "Checkout flow: Select Delivery Warehouse Address + Add Special Order Notes & Delivery Time Window",
+        "Order History with live interactive timeline (Pending -> Processing -> In Transit -> Delivered)",
+        "Direct Messaging drawer with assigned Supplier"
+      ]
+    },
+    "supplier": {
+      "name": "Supplier / Distributor",
+      "core_actions": [
+        "Inventory & Product Manager (Add new B2B product, adjust stock, set tier prices & MOQ)",
+        "Order Management Panel (Accept / Reject incoming bulk orders, update delivery status to In Transit/Delivered)",
+        "Revenue & Volume Analytics cards with Interactive Sales Charts (Recharts / Shadcn charts)",
+        "Supplier Stock Alert Badges (Low stock alerts, rapid re-order recommendations)"
+      ]
+    },
+    "admin": {
+      "name": "Platform Admin",
+      "core_actions": [
+        "Supplier Approval Queue (Approve new distributor verification requests)",
+        "User Management table (Filter by Retailer / Supplier / Admin, toggle active state)",
+        "Global Logistics Overview (Total GMV, aggregate order fulfillment rate, platform fee revenue)"
+      ]
+    }
+  },
+  "image_urls": {
+    "landing_hero_warehouse": "https://images.unsplash.com/photo-1553413077-190dd305871c?crop=entropy&cs=srgb&fm=jpg&q=85",
+    "logistics_fleet_topdown": "https://images.pexels.com/photos/35501717/pexels-photo-35501717.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+    "warehouse_racks": "https://images.unsplash.com/photo-1587293852726-70cdb56c2866?crop=entropy&cs=srgb&fm=jpg&q=85",
+    "beer_crates_wholesale": "https://images.pexels.com/photos/533353/pexels-photo-533353.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+    "beverage_cans_bulk": "https://images.pexels.com/photos/5532831/pexels-photo-5532831.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+    "snack_boxes_wholesale": "https://images.unsplash.com/photo-1621939514649-280e2ee25f60?crop=entropy&cs=srgb&fm=jpg&q=85",
+    "chips_display_bulk": "https://images.unsplash.com/photo-1688217170693-e821c6e18d72?crop=entropy&cs=srgb&fm=jpg&q=85",
+    "gatorade_bottles": "https://images.unsplash.com/photo-1625865019845-7b2c89b8a8a9?crop=entropy&cs=srgb&fm=jpg&q=85"
+  },
+  "mock_data_specifications": {
+    "categories": ["All Products", "Beverages", "Groceries", "Snacks & Sweets", "Dry Goods"],
+    "sample_products": [
+      {
+        "id": "PROD-101",
+        "name": "Artisan Craft Soda (24-pack case)",
+        "category": "Beverages",
+        "supplier": "Metro Bev Distributors",
+        "price_per_unit": 18.50,
+        "tier_pricing": [
+          {"min_qty": 10, "price": 18.50},
+          {"min_qty": 50, "price": 16.20},
+          {"min_qty": 100, "price": 14.50}
+        ],
+        "moq": 10,
+        "stock": 450,
+        "image": "https://images.pexels.com/photos/5532831/pexels-photo-5532831.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940"
+      },
+      {
+        "id": "PROD-102",
+        "name": "Organic Oat Milk - Barista Edition (12x1L)",
+        "category": "Beverages",
+        "supplier": "Apex Food Group",
+        "price_per_unit": 32.00,
+        "tier_pricing": [
+          {"min_qty": 5, "price": 32.00},
+          {"min_qty": 25, "price": 28.50},
+          {"min_qty": 60, "price": 25.00}
+        ],
+        "moq": 5,
+        "stock": 280,
+        "image": "https://images.unsplash.com/photo-1625865019845-7b2c89b8a8a9?crop=entropy&cs=srgb&fm=jpg&q=85"
+      },
+      {
+        "id": "PROD-103",
+        "name": "Wholesale Chocolate Bars Variety Box (48 Count)",
+        "category": "Snacks & Sweets",
+        "supplier": "Global Confectionery Co.",
+        "price_per_unit": 42.90,
+        "tier_pricing": [
+          {"min_qty": 5, "price": 42.90},
+          {"min_qty": 20, "price": 38.00},
+          {"min_qty": 50, "price": 34.00}
+        ],
+        "moq": 5,
+        "stock": 120,
+        "image": "https://images.unsplash.com/photo-1621939514649-280e2ee25f60?crop=entropy&cs=srgb&fm=jpg&q=85"
+      },
+      {
+        "id": "PROD-104",
+        "name": "Premium Potato Chips Bulk Display Box (36 Units)",
+        "category": "Snacks & Sweets",
+        "supplier": "SnackNation Wholesalers",
+        "price_per_unit": 27.50,
+        "tier_pricing": [
+          {"min_qty": 10, "price": 27.50},
+          {"min_qty": 30, "price": 24.00},
+          {"min_qty": 100, "price": 21.00}
+        ],
+        "moq": 10,
+        "stock": 500,
+        "image": "https://images.unsplash.com/photo-1688217170693-e821c6e18d72?crop=entropy&cs=srgb&fm=jpg&q=85"
+      },
+      {
+        "id": "PROD-105",
+        "name": "Craft Lager Crates Stack (24 Bottles)",
+        "category": "Beverages",
+        "supplier": "Metro Bev Distributors",
+        "price_per_unit": 38.00,
+        "tier_pricing": [
+          {"min_qty": 10, "price": 38.00},
+          {"min_qty": 40, "price": 33.50},
+          {"min_qty": 100, "price": 29.90}
+        ],
+        "moq": 10,
+        "stock": 620,
+        "image": "https://images.pexels.com/photos/533353/pexels-photo-533353.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940"
+      }
+    ]
+  },
+  "interactive_components_rules": {
+    "toast_notifications": "Use Sonner from `/app/src/components/ui/sonner.jsx` or equivalent for order placements, status updates, and stock alerts.",
+    "modals_and_drawers": "Use customized Shadcn Dialog and Sheet components with explicit background fill (never transparent background).",
+    "data_test_ids": "CRITICAL: Every interactive button, input, card, badge, tab, role toggle, and dropdown MUST have a unique data-testid (e.g., data-testid='role-switcher-supplier', data-testid='bulk-cart-checkout-btn', data-testid='order-status-badge-PROD-101').",
+    "motion_and_hover": "Hover states must explicitly set text color (e.g., hover:bg-blue-600 hover:text-white). Use micro-transitions like duration-200 ease-in-out."
+  },
+  "instructions_to_main_agent": [
+    "1. Read this guidelines JSON carefully before implementing components.",
+    "2. Ensure the App supports instantaneous role switching (Retailer, Supplier, Admin) via persistent Header Controls or Quick Demo Switcher.",
+    "3. Build the B2B catalog with real-time tier pricing updates as quantity changes in the bulk order modal or cart.",
+    "4. Include interactive In-App Messaging between Retailer and Supplier with mock messages & quick reply buttons.",
+    "5. Use Lucide icons (lucide-react) for clear B2B logistics visual cues (Truck, Package, ShieldCheck, TrendingUp, Filter, MessageSquare, Bell, Moon, Sun, Plus, Minus, CheckCircle, AlertTriangle).",
+    "6. Include responsive layout for both Desktop views and Mobile drawers/bottom sheets.",
+    "7. Always attach data-testid to every interactive component for automated test validation."
+  ]
+}
