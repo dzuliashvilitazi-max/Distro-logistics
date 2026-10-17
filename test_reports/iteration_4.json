@@ -1,0 +1,42 @@
+{
+  "summary": "Comprehensive testing of SANDBOX payment gateway, online checkout split, smart invoicing exclusion, auto-debit cron/admin, and frontend card/cart flows. 17/17 backend tests pass; frontend end-to-end (add card → online checkout → /orders redirect) works. Supplier invoices and admin financials still render.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "/admin/financials", "issues": ["Per-supplier checkout_collected field returned by API is rolled into the 'Collected' total but not surfaced as a distinct label/badge in the UI (minor transparency gap; backend behavior is correct). Consider showing 'Checkout collected: ₾X' as a sub-line to clarify which portion came from paid-at-checkout orders."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_payments_checkout.py",
+    "/app/test_reports/pytest/payments_checkout.xml"
+  ],
+  "action_items": [
+    "(Optional / low priority) Expose 'checkout_collected' as a distinct line in Admin Financials cards so admins can see online-paid commission separately from monthly-invoiced collections."
+  ],
+  "critical_code_review_comments": [
+    "payments.py: validate_card correctly enforces Luhn, expiry, CVC; DECLINE_ON_ADD / DECLINE_ON_CHARGE sim behavior matches spec. No raw PAN/CVC stored; only token/brand/last4/exp/name/verified persisted.",
+    "server.py:add_card response uses _card_public which exposes only {brand,last4,exp,name,verified} — raw PAN never leaked. Good.",
+    "server.py:create_order online branch computes grand_total up front and simulate_charge once per cart (not per-supplier). supplier_payout = total - fee is computed per supplier; payouts ledger record created with method=checkout_card.",
+    "do_generate_invoices filters orders by `not o.get('paid_at_checkout')` — correctly excludes checkout-paid orders from monthly invoices (verified: online-paid orders don't accrue to invoice amounts).",
+    "admin_financials computes checkout_collected separately and adds it to collected total. Accrued excludes paid_at_checkout orders (verified via test).",
+    "do_auto_debit skips not-yet-due invoices and skips suppliers without verified cards. Charge failures call notify() but do NOT raise — endpoint remains 2xx (acceptable: cron should be idempotent-ish).",
+    "/api/cron/auto-debit correctly enforces WEBHOOK_CRON_SECRET via Bearer check with secrets.compare_digest.",
+    "Payouts endpoint 403s retailers correctly; admin sees all.",
+    "SANDBOX gateway is clearly labeled and swappable (per spec, Stripe unavailable in Georgia) — intentional, not a bug."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_payments_checkout.py (new)"
+  ],
+  "success_rate": {"backend": "100% (17/17)", "frontend": "100% of tested flows"},
+  "test_credentials": "From /app/memory/test_credentials.md — admin, cornerstore (seeded card), freshmart (no card seeded, tested full add flow), metro (seeded card), snacknation (overdue+frozen+card for auto-debit).",
+  "seed_data_creation": "No new seed data; test used provided demo users and the SANDBOX test cards (4242… success, 4000000000000002 decline-on-add, 4000000000000341 decline-on-charge).",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Backend tests are serial-only (test_payments_checkout.py mutates frozen state and cards across users). Pytest config forces `-n 2 --dist loadscope`; override to `-n 0` for this file (serial = -n 0, NOT -p no:xdist per pytest.ini note). SnackNation gets unfrozen after the admin-auto-debit test — subsequent runs re-freeze via mongo in the frozen-supplier test to keep behavior deterministic. The admin financials UI does not surface a distinct 'Checkout collected' label (backend field present under /api/admin/financials). Online checkout, auto-debit cron with WEBHOOK_CRON_SECRET, decline cards, and freeze enforcement all verified end-to-end.",
+  "rca of the issue": "N/A — no bugs found. One minor UX suggestion recorded in frontend design_issues."
+}

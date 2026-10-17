@@ -38,6 +38,14 @@ B2B Distribution & Logistics web app. Three roles — Supplier/Distributor, Reta
 - **Crons**: generate-invoices (monthly) + billing-check (daily: mark overdue, freeze, email reminders). Bearer WEBHOOK_CRON_SECRET, 401 without.
 - **Admin issuer settings** in Admin Settings (legal name, tax ID, IBAN).
 
+### Real Card Payments & Split (2026-06) — SANDBOX gateway, tested 17/17
+- **Constraint**: Stripe does not operate in Georgia (claimable sandbox returned `country_not_supported`), so a self-contained sandbox gateway (`backend/payments.py`) was built — real Luhn/expiry/CVC validation, 1 GEL auth-hold on add-card, token-only storage (brand+last4, no PAN/CVC). Swappable to TBC Bank later. Clearly labeled sandbox in UI. No real money.
+- **Card on file** (`/api/payments/cards` add/get/delete) for retailers & suppliers via reusable `CardForm.jsx` (Profile + Supplier Invoices). Test cards: 4242…=ok, 4000000000000002=decline-on-add, 4000000000000341=decline-on-charge.
+- **Online checkout split** (`payment_method:"online"`): charges retailer card, marks order `paid_at_checkout`, computes `supplier_payout = total - commission`, platform keeps commission; writes `payouts` ledger (`GET /api/payments/payouts`).
+- **Smart invoicing**: paid-at-checkout orders excluded from monthly invoices & accrued; surfaced as `checkout_collected` in `/api/admin/financials` (shown as "Paid at checkout" per supplier) and rolled into collected.
+- **Auto-debit on the 6th** (`do_auto_debit`, cron `/api/cron/auto-debit`, admin `/api/admin/auto-debit/run`): charges supplier saved card for due/overdue invoices → marks paid + unfreezes. Freeze still enforced on frozen suppliers at order placement & status change.
+- Cron added to `.emergent/crons.yml` (auto-debit, 6th 07:00 UTC). 3 crons total.
+
 ## Endpoints (billing)
 - GET /api/invoices (supplier own / admin all) · GET /api/invoices/{id}/pdf
 - PUT /api/admin/invoices/{id}/paid · POST /api/admin/invoices/{id}/remind · POST /api/admin/invoices/generate

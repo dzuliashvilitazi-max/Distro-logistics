@@ -109,6 +109,12 @@ export default function AdminFinancials() {
               <div><p className="text-xs text-muted-foreground">{t("bill.collected")}</p><p className="font-semibold text-emerald-500">{money(s.collected)}</p></div>
             </div>
 
+            {s.checkout_collected > 0 && (
+              <p className="mt-2 text-xs text-muted-foreground" data-testid={`checkout-collected-${s.supplier_id}`}>
+                {t("bill.checkoutCollected")}: <span className="font-semibold text-emerald-500">{money(s.checkout_collected)}</span>
+              </p>
+            )}
+
             {s.invoices.length > 0 && (
               <div className="mt-4 overflow-x-auto rounded-lg border border-border">
                 <table className="w-full text-sm">

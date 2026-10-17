@@ -139,6 +139,7 @@ const en = {
   "card.removed": "Card removed", "card.sandboxNote": "Sandbox mode — use test card 4242 4242 4242 4242, any future expiry, any CVC. A 1 GEL hold validates the card, then is released. No real charge.",
   "card.autoDebitNote": "Outstanding commission is auto-debited from this card on the 6th.",
   "card.needCard": "Add a verified card in your profile to pay online.",
+  "bill.checkoutCollected": "Paid at checkout",
 };
 
 const ka = {
@@ -266,6 +267,7 @@ const ka = {
   "card.removed": "ბარათი წაიშალა", "card.sandboxNote": "სატესტო რეჟიმი — გამოიყენეთ ბარათი 4242 4242 4242 4242, ნებისმიერი მომავალი ვადა, ნებისმიერი CVC. ვერიფიკაციისთვის იჭერება 1 ₾, შემდეგ ბრუნდება. რეალური გადახდა არ ხდება.",
   "card.autoDebitNote": "დავალიანებული საკომისიო ავტომატურად ჩამოიჭრება ამ ბარათიდან 6 რიცხვში.",
   "card.needCard": "ონლაინ გადასახდელად დაამატეთ დადასტურებული ბარათი პროფილში.",
+  "bill.checkoutCollected": "გადახდილია ყიდვისას",
 };
 
 const ru = {
@@ -393,6 +395,7 @@ const ru = {
   "card.removed": "Карта удалена", "card.sandboxNote": "Тестовый режим — карта 4242 4242 4242 4242, любой будущий срок, любой CVC. Для проверки удерживается 1 ₾, затем возврат. Реальных списаний нет.",
   "card.autoDebitNote": "Задолженность по комиссии списывается с этой карты 6-го числа.",
   "card.needCard": "Добавьте проверенную карту в профиле для онлайн-оплаты.",
+  "bill.checkoutCollected": "Оплачено при оформлении",
 };
 
 export const translations = { en, ka, ru };
