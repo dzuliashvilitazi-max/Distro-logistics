@@ -24,17 +24,19 @@ export default function Auth({ mode }) {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
   const [role, setRole] = useState("retailer");
+  const [agreed, setAgreed] = useState(false);
   const [form, setForm] = useState({ email: "", password: "", name: "", business_name: "", address: "", city: "", identification_number: "", establishment_type: "grocery", card_name: "", card_number: "", card_expiry: "", bank_name: "", iban: "" });
 
   const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
 
   const submit = async (e) => {
     e.preventDefault();
+    if (isRegister && !agreed) { toast.error(t("auth.mustAgree")); return; }
     setLoading(true);
     try {
       let user;
       if (isRegister) {
-        user = await register({ ...form, role });
+        user = await register({ ...form, role, accept_terms: true });
         toast.success(role === "supplier" ? t("auth.supplierCreated") : t("auth.welcomeMsg"));
       } else {
         user = await login(form.email, form.password);
@@ -136,7 +138,18 @@ export default function Auth({ mode }) {
             )}
             <div><Label htmlFor="email">{t("auth.email")}</Label><Input id="email" type="email" required value={form.email} onChange={set("email")} className="mt-1.5" data-testid="auth-email" placeholder="you@business.com" /></div>
             <div><Label htmlFor="password">{t("auth.password")}</Label><Input id="password" type="password" required value={form.password} onChange={set("password")} className="mt-1.5" data-testid="auth-password" placeholder="••••••••" /></div>
-            <Button type="submit" className="h-11 w-full text-base" disabled={loading} data-testid="auth-submit">
+            {isRegister && (
+              <label className="flex items-start gap-2.5 text-sm" data-testid="register-terms-label">
+                <input type="checkbox" checked={agreed} onChange={(e) => setAgreed(e.target.checked)} data-testid="register-terms-checkbox" className="mt-0.5 h-4 w-4 shrink-0 rounded border-input accent-primary" />
+                <span className="text-muted-foreground">
+                  {t("auth.agreePrefix")}
+                  <Link to="/terms" target="_blank" className="font-semibold text-primary hover:underline" data-testid="terms-link">{t("auth.terms")}</Link>
+                  {t("auth.and")}
+                  <Link to="/privacy" target="_blank" className="font-semibold text-primary hover:underline" data-testid="privacy-link">{t("auth.privacy")}</Link>
+                </span>
+              </label>
+            )}
+            <Button type="submit" className="h-11 w-full text-base" disabled={loading || (isRegister && !agreed)} data-testid="auth-submit">
               {loading ? <Loader2 className="h-5 w-5 animate-spin" /> : <>{isRegister ? t("auth.createAccount") : t("auth.signIn")} <ArrowRight className="ml-1.5 h-4 w-4" /></>}
             </Button>
           </form>

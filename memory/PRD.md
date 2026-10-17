@@ -46,6 +46,11 @@ B2B Distribution & Logistics web app. Three roles — Supplier/Distributor, Reta
 - **Auto-debit on the 6th** (`do_auto_debit`, cron `/api/cron/auto-debit`, admin `/api/admin/auto-debit/run`): charges supplier saved card for due/overdue invoices → marks paid + unfreezes. Freeze still enforced on frozen suppliers at order placement & status change.
 - Cron added to `.emergent/crons.yml` (auto-debit, 6th 07:00 UTC). 3 crons total.
 
+### Terms of Service & Privacy acceptance (2026-06)
+- Public `/terms` and `/privacy` pages (localized headings; legal body in EN) covering B2B facilitation, supplier fulfillment, monthly commission 5-day due date, auto-debit authorization, and PCI-DSS. Linked from the landing footer and the registration form.
+- Registration requires a mandatory "I agree to the Terms of Service and Privacy Policy" checkbox with clickable links; Create account is disabled until checked (backend also rejects with 400 if `accept_terms` is not true).
+- Consent audit recorded at signup: `terms_accepted`, `terms_accepted_at` (UTC), `terms_accepted_ip` (first X-Forwarded-For hop), `terms_version` on the user, plus an immutable record in the `terms_acceptances` collection (user_id, email, role, version, timestamp, ip, user_agent).
+
 ## Endpoints (billing)
 - GET /api/invoices (supplier own / admin all) · GET /api/invoices/{id}/pdf
 - PUT /api/admin/invoices/{id}/paid · POST /api/admin/invoices/{id}/remind · POST /api/admin/invoices/generate

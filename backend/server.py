@@ -98,6 +98,7 @@ class RegisterIn(BaseModel):
     # supplier banking
     bank_name: Optional[str] = ""
     iban: Optional[str] = ""
+    accept_terms: bool = False
 
 class LoginIn(BaseModel):
     email: EmailStr
@@ -205,7 +206,7 @@ def clean(doc):
 
 # ---------- auth ----------
 @api.post("/auth/register")
-async def register(body: RegisterIn):
+async def register(body: RegisterIn, request: Request):
     email = body.email.lower()
     if body.role not in ("retailer", "supplier"):
         raise HTTPException(400, "Invalid role")
@@ -213,6 +214,12 @@ async def register(body: RegisterIn):
         raise HTTPException(400, "Email already registered")
     if not (body.identification_number or "").strip():
         raise HTTPException(400, "Identification number is required")
+    if not body.accept_terms:
+        raise HTTPException(400, "You must accept the Terms of Service and Privacy Policy to create an account.")
+    terms_version = "2026-06-01"
+    accepted_at = now_iso()
+    xff = request.headers.get("x-forwarded-for", "")
+    client_ip = xff.split(",")[0].strip() if xff else (request.client.host if request.client else "")
     uid = str(uuid.uuid4())
     user = {
         "id": uid, "email": email, "password_hash": hash_password(body.password),
@@ -224,9 +231,16 @@ async def register(body: RegisterIn):
         "card_expiry": body.card_expiry or "",
         "bank_name": body.bank_name or "", "iban": body.iban or "",
         "status": "pending" if body.role == "supplier" else "active",
+        "terms_accepted": True, "terms_accepted_at": accepted_at,
+        "terms_accepted_ip": client_ip, "terms_version": terms_version,
         "created_at": now_iso(),
     }
     await db.users.insert_one(user)
+    await db.terms_acceptances.insert_one({
+        "id": str(uuid.uuid4()), "user_id": uid, "email": email, "role": body.role,
+        "terms_version": terms_version, "accepted_at": accepted_at, "ip": client_ip,
+        "user_agent": request.headers.get("user-agent", ""),
+    })
     if body.role == "supplier":
         admins = await db.users.find({"role": "admin"}).to_list(10)
         for a in admins:

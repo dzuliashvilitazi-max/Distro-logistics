@@ -104,7 +104,13 @@ export default function Landing() {
 
       <footer className="border-t border-border">
         <div className="mx-auto flex max-w-7xl flex-col items-center justify-between gap-4 px-4 py-8 sm:flex-row sm:px-6 lg:px-8">
-          <p className="font-mono text-xs text-muted-foreground">{t("land.footer")}</p>
+          <div className="flex flex-col gap-1.5">
+            <p className="font-mono text-xs text-muted-foreground">{t("land.footer")}</p>
+            <div className="flex gap-4 text-xs">
+              <Link to="/terms" className="text-muted-foreground transition-colors hover:text-primary hover:underline" data-testid="footer-terms-link">{t("auth.terms")}</Link>
+              <Link to="/privacy" className="text-muted-foreground transition-colors hover:text-primary hover:underline" data-testid="footer-privacy-link">{t("auth.privacy")}</Link>
+            </div>
+          </div>
           <Link to="/register"><Button variant="outline" data-testid="footer-cta-btn">{t("land.createAccount")}</Button></Link>
         </div>
       </footer>

@@ -140,6 +140,9 @@ const en = {
   "card.autoDebitNote": "Outstanding commission is auto-debited from this card on the 6th.",
   "card.needCard": "Add a verified card in your profile to pay online.",
   "bill.checkoutCollected": "Paid at checkout",
+  "auth.agreePrefix": "I agree to the ", "auth.terms": "Terms of Service", "auth.and": " and ", "auth.privacy": "Privacy Policy",
+  "auth.mustAgree": "You must accept the Terms of Service and Privacy Policy to create an account.",
+  "legal.backHome": "Back to home", "legal.lastUpdated": "Last updated: June 2026",
 };
 
 const ka = {
@@ -268,6 +271,9 @@ const ka = {
   "card.autoDebitNote": "დავალიანებული საკომისიო ავტომატურად ჩამოიჭრება ამ ბარათიდან 6 რიცხვში.",
   "card.needCard": "ონლაინ გადასახდელად დაამატეთ დადასტურებული ბარათი პროფილში.",
   "bill.checkoutCollected": "გადახდილია ყიდვისას",
+  "auth.agreePrefix": "ვეთანხმები ", "auth.terms": "მომსახურების პირობებს", "auth.and": " და ", "auth.privacy": "კონფიდენციალურობის პოლიტიკას",
+  "auth.mustAgree": "ანგარიშის შესაქმნელად უნდა დაეთანხმოთ მომსახურების პირობებსა და კონფიდენციალურობის პოლიტიკას.",
+  "legal.backHome": "მთავარ გვერდზე დაბრუნება", "legal.lastUpdated": "განახლდა: ივნისი 2026",
 };
 
 const ru = {
@@ -396,6 +402,9 @@ const ru = {
   "card.autoDebitNote": "Задолженность по комиссии списывается с этой карты 6-го числа.",
   "card.needCard": "Добавьте проверенную карту в профиле для онлайн-оплаты.",
   "bill.checkoutCollected": "Оплачено при оформлении",
+  "auth.agreePrefix": "Я принимаю ", "auth.terms": "Условия использования", "auth.and": " и ", "auth.privacy": "Политику конфиденциальности",
+  "auth.mustAgree": "Чтобы создать аккаунт, необходимо принять Условия использования и Политику конфиденциальности.",
+  "legal.backHome": "На главную", "legal.lastUpdated": "Обновлено: июнь 2026",
 };
 
 export const translations = { en, ka, ru };

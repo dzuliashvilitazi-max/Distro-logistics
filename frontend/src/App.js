@@ -24,6 +24,8 @@ import AdminFinancials from "@/pages/admin/AdminFinancials";
 import SupplierInvoices from "@/pages/supplier/SupplierInvoices";
 import Messages from "@/pages/Messages";
 import Profile from "@/pages/Profile";
+import TermsOfService from "@/pages/TermsOfService";
+import PrivacyPolicy from "@/pages/PrivacyPolicy";
 
 function RoleHome() {
   const { user, loading } = useAuth();
@@ -49,6 +51,8 @@ function App() {
               <Route path="/" element={<RoleHome />} />
               <Route path="/login" element={<Auth mode="login" />} />
               <Route path="/register" element={<Auth mode="register" />} />
+              <Route path="/terms" element={<TermsOfService />} />
+              <Route path="/privacy" element={<PrivacyPolicy />} />
 
               <Route path="/catalog" element={<Page roles={["retailer"]}><Catalog /></Page>} />
               <Route path="/cart" element={<Page roles={["retailer"]}><Cart /></Page>} />
