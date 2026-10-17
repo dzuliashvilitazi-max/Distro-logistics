@@ -1,39 +1,56 @@
 # Distro Logistics — PRD
 
 ## Original Problem Statement
-B2B Distribution & Logistics web app with clean, modern, high-contrast UI. Three roles — Supplier/Distributor, Retailer/Store Owner, Admin. Retailer: catalog with filters, bulk order placement with MOQ + tier pricing, cart & checkout with delivery address/notes, order history with status badges. Supplier: inventory management with tier pricing, order management (accept/reject/advance status), revenue analytics. Admin: user management, approve supplier registration, system analytics. Shared: real-time (polling) notifications, in-app messaging between retailer and supplier, profile settings. Dark/light toggle, responsive, rich mock data (beverages, groceries, snacks).
+B2B Distribution & Logistics web app. Three roles — Supplier/Distributor, Retailer/Store Owner, Admin. Retailer: catalog with filters, bulk orders with MOQ + tier pricing, cart & checkout (payment method), order history. Supplier: inventory with tier pricing, order management, revenue analytics. Admin: user management, approvals, analytics, platform settings. Shared: polling notifications, in-app messaging, profiles. Dark/light, responsive, GEL/₾ currency, EN/KA/RU localization.
 
 ## Architecture
-- Backend: FastAPI + MongoDB (motor). JWT Bearer auth (bcrypt). All routes under /api. Auto-seeds mock data on startup when empty.
-- Frontend: Vite + React 19 + Tailwind v4 + shadcn/ui. Context for Auth, Theme, Cart. Recharts for analytics. framer-motion for landing. Polling (5-7s) for notifications/orders/messages.
-- Roles enforced via require_role dependency + ownership scoping (retailer sees own orders, supplier sees own products/orders).
+- Backend: FastAPI + MongoDB (motor). JWT Bearer auth (bcrypt). All routes under /api. Auto-seeds on startup when empty.
+- Frontend: Vite + React 19 + Tailwind v4 + shadcn/ui. Context: Auth, Theme, Cart, I18n. Recharts, framer-motion. Polling (6s) for notifications.
+- Roles via require_role + ownership scoping.
+- New backend modules: email_service.py (Emergent managed Resend), invoices.py (reportlab PDF), billing logic in server.py.
+- Scheduling: .emergent/crons.yml (monthly-invoices on 1st 05:00 UTC; billing-check daily 06:00 Asia/Tbilisi).
 
 ## User Personas
-- Retailer / Store Owner: browses catalog, places bulk orders, tracks deliveries, messages suppliers.
-- Supplier / Distributor: manages inventory & tier pricing, fulfills orders, views sales analytics.
-- Admin: approves suppliers, manages users, oversees platform GMV/analytics.
+- Retailer: browses catalog, places bulk orders, tracks deliveries.
+- Supplier: manages inventory, fulfills orders, pays monthly platform commission.
+- Admin / finance Super-Admin: approvals, users, platform GMV, and full commission/financial oversight.
 
 ## Core Requirements (static)
-- JWT auth with role selection (retailer/supplier self-register; supplier starts pending).
-- Tier pricing + MOQ enforced in catalog, cart, and checkout.
-- Order lifecycle: Pending → Processing → In Transit → Delivered (+ Cancelled). Supplier advances; retailer may cancel own pending.
-- Polling notifications + in-app messaging + profile settings.
-- Dark/light theme, responsive web + mobile.
+- JWT auth with role selection; supplier starts pending.
+- Tier pricing + MOQ; order lifecycle Pending → Processing → In Transit → Delivered (+ Cancelled).
+- GEL/₾ currency; EN/KA/RU localization; dark/light.
+- Configurable platform service fee/commission (percent/fixed; payer supplier/retailer/split).
+- Commission billing always accrues to the SUPPLIER for every delivered order.
 
-## Implemented (2026-06, v1 MVP)
-- Auth: register/login/me, demo quick-login for all 3 roles, seeded accounts.
-- Retailer: catalog (category/search/stock filters), bulk order dialog with live tier pricing, cart + checkout (address/window/notes), order history with status timeline + cancel.
-- Supplier: dashboard (revenue, daily sales, active orders, 7-day chart, popular items, low-stock alerts), inventory CRUD with tier pricing, order management (accept/reject/advance).
-- Admin: platform overview (GMV, orders, fulfillment, fees, counts), user management table with supplier approval queue + suspend/activate.
-- Shared: notification bell with unread count (polling), messaging with contacts + quick replies, profile settings.
-- Verified: 37/37 backend tests passed; all critical frontend flows passed.
+## Implemented
+### v1 MVP (2026-06)
+- Auth, demo accounts; Retailer catalog/cart/checkout/orders; Supplier dashboard/inventory/orders; Admin overview/users/orders/settings; messaging; notifications; profiles. 37/37 backend tests.
+### Payments, currency, localization, registration (2026-06)
+- Checkout payment methods (cash/card/consignment) persisted on orders. GEL/₾ everywhere. Full EN/KA/RU i18n. Retailer ID/establishment/card; Supplier ID/bank/IBAN/city; Admin fee settings, categories, city filter.
+### Automated Commission Billing & Financial Management (2026-06) — NEW, tested 18/18
+- **Accrual**: order advancing to Delivered sets delivered_at + commission_amount (= 5% service_fee); always billed to supplier.
+- **Monthly invoices**: do_generate_invoices() builds one invoice per supplier per prior month from delivered, not-yet-invoiced orders; idempotent per (supplier, period). Invoice includes issuer legal name/tax ID/IBAN, supplier tax ID, itemized orders, GEL total, issue/due dates (5-day term), official PDF (reportlab).
+- **Email**: invoice + overdue reminder emails via Emergent managed Resend (try_send_email, non-raising). Links point to app only; guardrail gate enforced.
+- **Supplier "Invoices & Billing"** (/supplier/invoices): invoice table, status badges, PDF download, frozen banner.
+- **Super-Admin "Financials & Commission Tracker"** (/admin/financials): totals (outstanding/accrued/collected); per-supplier ledger (month sales, accrued, outstanding, collected, frozen badge); invoices with green=Paid/yellow=Pending/red=Overdue; Mark Paid, Send Reminder, PDF, Generate Invoices Now.
+- **Mark-as-paid** reconciliation → recomputes/clears supplier freeze.
+- **Account freeze**: overdue invoice freezes supplier — retailers cannot place orders to them (403) and the supplier cannot advance/accept orders (403) until marked paid.
+- **Crons**: generate-invoices (monthly) + billing-check (daily: mark overdue, freeze, email reminders). Bearer WEBHOOK_CRON_SECRET, 401 without.
+- **Admin issuer settings** in Admin Settings (legal name, tax ID, IBAN).
+
+## Endpoints (billing)
+- GET /api/invoices (supplier own / admin all) · GET /api/invoices/{id}/pdf
+- PUT /api/admin/invoices/{id}/paid · POST /api/admin/invoices/{id}/remind · POST /api/admin/invoices/generate
+- GET /api/admin/financials
+- POST /api/cron/generate-invoices · POST /api/cron/billing-check (Bearer WEBHOOK_CRON_SECRET)
 
 ## Backlog
-- P1: Atomic/transactional stock decrement with availability check (prevent race/negative stock).
-- P1: Supplier-specific catalog view filter for retailers; saved delivery addresses.
-- P2: Export orders/analytics CSV; date-range analytics filters.
-- P2: Switch FastAPI on_event to lifespan; add login brute-force lockout.
-- P2: Order reorder (one-click repeat); email notifications.
+- P1: Reject ad-hoc generation for current (open) month in admin generate endpoint.
+- P2: Admin audit log + rate-limit on reminder sends.
+- P2: Extract billing section from server.py into billing.py (server.py ~788 lines).
+- P2: Atomic/transactional stock decrement; saved delivery addresses; CSV export.
+- P2: Explicit CORS origins + credentials for prod.
 
-## Next Tasks
-- Gather user feedback on MVP, then prioritize reorder, saved addresses, and atomic stock handling.
+## Notes
+- Demo billing state: Metro=Paid, Apex=Pending, SnackNation=Overdue+Frozen, Coastal=none.
+- No real payment processor; card fields are data/UI only (no vaulting).

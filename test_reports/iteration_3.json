@@ -1,0 +1,31 @@
+{
+  "summary": "Backend-only testing of the Automated Commission Billing & Financial Management module. 18/18 executed tests passed (1 skipped by design). Covered admin financials ledger shape and seed values (Metro paid, Apex pending, SnackNation overdue+frozen), supplier invoice scoping, PDF access rules (owner/admin 200, cross-supplier 404, retailer 403), freeze enforcement on retailer order placement with unfreeze-after-paid round trip, mark-paid recomputes freeze (SnackNation billing_frozen -> false), remind endpoint shape, idempotent /admin/invoices/generate, commission accrual on delivery with delivered_at + commission_amount set and appearing in current-month accrued_commission, cron auth 401/200+{accepted:true}, and admin-only authorization enforcement.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "PUT /api/orders/{oid}/status (supplier, frozen)", "issue": "Freeze-block code path for supplier status transitions could not be re-exercised in isolation because there is no admin API to re-freeze a supplier without direct DB mutation. The code (server.py:364-365) correctly rejects with 403 when user.billing_frozen is True and status != 'Cancelled', and the enforcement in create_order was validated end-to-end. Consider exposing an admin endpoint to toggle billing_frozen or a 'simulate overdue' helper for testability."},
+      {"endpoint": "POST /api/admin/invoices/generate", "issue": "After the test that marks SnackNation's overdue invoice paid, calling generate currently produces no new invoice for SnackNation because its single delivered order (seed) was already attached to the prior invoice via invoice_id. Idempotency verified: no duplicates for existing (supplier_id, period)."}
+    ]
+  },
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_billing.py",
+    "/app/test_reports/pytest/billing_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py (788 lines) is nearing the 700-line soft limit; billing section (lines 538-765) is a strong candidate for extraction into /app/backend/billing.py (routes + helpers) alongside the existing invoices.py and email_service.py.",
+    "CORS is configured with allow_origins=['*'] and allow_credentials=False (server.py:769). For a prod B2B app with cookie auth also supported in get_current_user, consider explicit origins + credentials=True.",
+    "effective_status recomputes overdue purely from due_date vs now (server.py:561-568). This is fine, but recompute_freeze is only called on mark_paid and in do_billing_check — a supplier whose invoice crosses the due boundary mid-day won't be frozen until billing-check cron runs. Acceptable given cron design, but worth documenting.",
+    "do_generate_invoices attaches orders to the created invoice via invoice_id (server.py:617), but if generate is called mid-month ad-hoc for the current period there is no safeguard — only prior-month generation is intended. Consider rejecting period == current month in admin endpoint.",
+    "In update_order_status (server.py:376), commission_amount is set only when transitioning to Delivered and not already delivered_at — good. But order_commission falls back to service_fee or 5% of total if commission_amount absent; ensure settings.fee_type != 'percent' doesn't skew accrual on legacy orders.",
+    "No rate-limit / audit log on POST /api/admin/invoices/{id}/remind — a super-admin could spam a supplier."
+  ],
+  "updated_files": ["/app/backend/tests/test_billing.py"],
+  "success_rate": {"backend": "100% (18/18 executed, 1 skipped by design)", "frontend": "N/A (not tested per request)"},
+  "test_credentials": "Admin mgv67mk2j5@privaterelay.appleid.com/Admin@123; suppliers metro/apex/snacknation @distro.com Password@123; retailers cornerstore/freshmart @distro.com Password@123; WEBHOOK_CRON_SECRET from backend/.env.",
+  "seed_data_creation": "No new seed. Tests mutate demo data as expected: SnackNation overdue invoice is marked paid (unfreezes supplier), two new SnackNation orders are placed (one placed-then-advanced-to-Processing, one taken through to Delivered). Subsequent reruns remain idempotent due to generate-dedup logic.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "test_billing.py is the regression suite for the commission billing module. Note: running it will consume SnackNation's seeded overdue invoice (marks it paid) and leave SnackNation unfrozen with an extra Delivered order carrying commission into the current month. If a clean re-run of the frozen-order-blocked assertion is required, re-seed by restarting backend after wiping invoices or by manually setting an invoice's due_date to the past and users.billing_frozen=true. The 'frozen supplier status update' branch is validated statically (code path exists) and dynamically via create_order's freeze check end-to-end."
+}
