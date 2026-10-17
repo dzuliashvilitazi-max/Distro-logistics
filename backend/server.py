@@ -81,6 +81,16 @@ class RegisterIn(BaseModel):
     role: str  # retailer | supplier
     business_name: Optional[str] = ""
     address: Optional[str] = ""
+    city: Optional[str] = ""
+    identification_number: str  # Tax ID / Personal ID (mandatory)
+    establishment_type: Optional[str] = ""  # retailer only
+    # retailer card (store masked only)
+    card_name: Optional[str] = ""
+    card_number: Optional[str] = ""
+    card_expiry: Optional[str] = ""
+    # supplier banking
+    bank_name: Optional[str] = ""
+    iban: Optional[str] = ""
 
 class LoginIn(BaseModel):
     email: EmailStr
@@ -93,6 +103,7 @@ class TierPrice(BaseModel):
 class ProductIn(BaseModel):
     name: str
     category: str
+    city: Optional[str] = ""
     price_per_unit: float
     tier_pricing: List[TierPrice] = []
     moq: int = 1
@@ -128,6 +139,39 @@ class ProfileIn(BaseModel):
     business_name: Optional[str] = None
     address: Optional[str] = None
     phone: Optional[str] = None
+    city: Optional[str] = None
+    identification_number: Optional[str] = None
+    establishment_type: Optional[str] = None
+    card_name: Optional[str] = None
+    card_number: Optional[str] = None
+    card_expiry: Optional[str] = None
+    bank_name: Optional[str] = None
+    iban: Optional[str] = None
+
+class SettingsIn(BaseModel):
+    fee_type: str = "percent"       # percent | fixed
+    fee_value: float = 5.0          # percent (%) or fixed amount (₾)
+    fee_payer: str = "supplier"     # supplier | retailer | split
+
+class CategoryIn(BaseModel):
+    name: str
+
+
+def mask_card(number: str) -> str:
+    digits = "".join(ch for ch in (number or "") if ch.isdigit())
+    return digits[-4:] if len(digits) >= 4 else ""
+
+async def get_settings() -> dict:
+    s = await db.settings.find_one({"id": "platform"}, {"_id": 0})
+    if not s:
+        s = {"id": "platform", "fee_type": "percent", "fee_value": 5.0, "fee_payer": "supplier"}
+        await db.settings.insert_one(dict(s))
+    return s
+
+def compute_fee(total: float, s: dict) -> float:
+    if s["fee_type"] == "fixed":
+        return round(float(s["fee_value"]), 2)
+    return round(total * float(s["fee_value"]) / 100.0, 2)
 
 
 async def notify(user_id: str, text: str, ntype: str = "info"):
@@ -149,11 +193,18 @@ async def register(body: RegisterIn):
         raise HTTPException(400, "Invalid role")
     if await db.users.find_one({"email": email}):
         raise HTTPException(400, "Email already registered")
+    if not (body.identification_number or "").strip():
+        raise HTTPException(400, "Identification number is required")
     uid = str(uuid.uuid4())
     user = {
         "id": uid, "email": email, "password_hash": hash_password(body.password),
         "name": body.name, "role": body.role, "business_name": body.business_name or body.name,
-        "address": body.address or "", "phone": "",
+        "address": body.address or "", "phone": "", "city": body.city or "",
+        "identification_number": body.identification_number.strip(),
+        "establishment_type": body.establishment_type or "",
+        "card_name": body.card_name or "", "card_last4": mask_card(body.card_number),
+        "card_expiry": body.card_expiry or "",
+        "bank_name": body.bank_name or "", "iban": body.iban or "",
         "status": "pending" if body.role == "supplier" else "active",
         "created_at": now_iso(),
     }
@@ -182,12 +233,15 @@ async def me(user: dict = Depends(get_current_user)):
 # ---------- products ----------
 @api.get("/products")
 async def list_products(category: Optional[str] = None, supplier_id: Optional[str] = None,
-                        search: Optional[str] = None, availability: Optional[str] = None):
+                        search: Optional[str] = None, availability: Optional[str] = None,
+                        city: Optional[str] = None):
     q = {}
     if category and category not in ("All Products", "all"):
         q["category"] = category
     if supplier_id:
         q["supplier_id"] = supplier_id
+    if city and city not in ("All Cities", "all"):
+        q["city"] = city
     if search:
         q["name"] = {"$regex": search, "$options": "i"}
     if availability == "in_stock":
@@ -198,8 +252,10 @@ async def list_products(category: Optional[str] = None, supplier_id: Optional[st
 @api.post("/products")
 async def create_product(body: ProductIn, user: dict = Depends(require_role("supplier"))):
     pid = str(uuid.uuid4())
+    data = body.model_dump()
+    data["city"] = data.get("city") or user.get("city", "")
     doc = {"id": pid, "supplier_id": user["id"], "supplier_name": user["business_name"],
-           **body.model_dump(), "created_at": now_iso()}
+           **data, "created_at": now_iso()}
     await db.products.insert_one(dict(doc))
     return clean(doc)
 
@@ -226,17 +282,24 @@ async def delete_product(pid: str, user: dict = Depends(require_role("supplier")
 @api.post("/orders")
 async def create_order(body: OrderIn, user: dict = Depends(require_role("retailer"))):
     supplier_ids = {i.supplier_id for i in body.items}
+    settings = await get_settings()
     created = []
     for sid in supplier_ids:
         items = [i for i in body.items if i.supplier_id == sid]
         total = sum(i.unit_price * i.quantity for i in items)
         supplier = await db.users.find_one({"id": sid})
+        fee = compute_fee(total, settings)
+        payer = settings["fee_payer"]
         oid = str(uuid.uuid4())
         order = {
             "id": oid, "order_no": "ORD-" + oid[:8].upper(),
             "retailer_id": user["id"], "retailer_name": user["business_name"],
+            "retailer_tax_id": user.get("identification_number", ""),
+            "retailer_establishment": user.get("establishment_type", ""),
             "supplier_id": sid, "supplier_name": supplier["business_name"] if supplier else "Supplier",
+            "supplier_tax_id": supplier.get("identification_number", "") if supplier else "",
             "items": [i.model_dump() for i in items], "total": round(total, 2),
+            "service_fee": fee, "fee_payer": payer, "fee_type": settings["fee_type"], "fee_value": settings["fee_value"],
             "status": "Pending", "delivery_address": body.delivery_address,
             "notes": body.notes or "", "delivery_window": body.delivery_window or "",
             "payment_method": body.payment_method or "cash",
@@ -325,8 +388,9 @@ async def admin_analytics(user: dict = Depends(require_role("admin"))):
     gmv = sum(o["total"] for o in orders if o["status"] != "Cancelled")
     delivered = len([o for o in orders if o["status"] == "Delivered"])
     fulfillment = round((delivered / len(orders) * 100), 1) if orders else 0
+    fee_revenue = sum(o.get("service_fee", round(o["total"] * 0.05, 2)) for o in orders if o["status"] != "Cancelled")
     return {"gmv": round(gmv, 2), "total_orders": len(orders), "fulfillment_rate": fulfillment,
-            "fee_revenue": round(gmv * 0.05, 2),
+            "fee_revenue": round(fee_revenue, 2),
             "retailers": len([u for u in users if u["role"] == "retailer"]),
             "suppliers": len([u for u in users if u["role"] == "supplier"]),
             "pending_suppliers": len([u for u in users if u["role"] == "supplier" and u.get("status") == "pending"])}
@@ -398,8 +462,46 @@ async def read_notifications(user: dict = Depends(get_current_user)):
 @api.put("/profile")
 async def update_profile(body: ProfileIn, user: dict = Depends(get_current_user)):
     upd = {k: v for k, v in body.model_dump().items() if v is not None}
+    if "card_number" in upd:
+        num = upd.pop("card_number")
+        if num:
+            upd["card_last4"] = mask_card(num)
     await db.users.update_one({"id": user["id"]}, {"$set": upd})
     return await db.users.find_one({"id": user["id"]}, {"_id": 0, "password_hash": 0})
+
+
+# ---------- platform settings (service fee) ----------
+@api.get("/settings")
+async def read_settings(user: dict = Depends(get_current_user)):
+    return await get_settings()
+
+@api.put("/admin/settings")
+async def write_settings(body: SettingsIn, user: dict = Depends(require_role("admin"))):
+    if body.fee_type not in ("percent", "fixed"):
+        raise HTTPException(400, "Invalid fee type")
+    if body.fee_payer not in ("supplier", "retailer", "split"):
+        raise HTTPException(400, "Invalid fee payer")
+    await db.settings.update_one({"id": "platform"},
+        {"$set": {"fee_type": body.fee_type, "fee_value": body.fee_value, "fee_payer": body.fee_payer}}, upsert=True)
+    return await get_settings()
+
+
+# ---------- categories ----------
+@api.get("/categories")
+async def list_categories():
+    cats = await db.categories.find({}, {"_id": 0}).sort("name", 1).to_list(200)
+    return [c["name"] for c in cats]
+
+@api.post("/categories")
+async def add_category(body: CategoryIn, user: dict = Depends(get_current_user)):
+    if user["role"] not in ("admin", "supplier"):
+        raise HTTPException(403, "Not allowed")
+    name = body.name.strip()
+    if not name:
+        raise HTTPException(400, "Name required")
+    if not await db.categories.find_one({"name": name}):
+        await db.categories.insert_one({"id": str(uuid.uuid4()), "name": name})
+    return await list_categories()
 
 
 app.include_router(api)
@@ -414,6 +516,10 @@ async def startup():
     await db.orders.create_index("retailer_id")
     await db.orders.create_index("supplier_id")
     await seed_data(db, hash_password)
+    await get_settings()
+    if await db.categories.count_documents({}) == 0:
+        for c in ["Beverages", "Groceries", "Snacks & Sweets", "Dry Goods", "Household Chemicals", "Packaging", "Hygiene"]:
+            await db.categories.insert_one({"id": str(uuid.uuid4()), "name": c})
 
 @app.on_event("shutdown")
 async def shutdown():

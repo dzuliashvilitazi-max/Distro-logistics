@@ -24,7 +24,7 @@ export default function Auth({ mode }) {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
   const [role, setRole] = useState("retailer");
-  const [form, setForm] = useState({ email: "", password: "", name: "", business_name: "", address: "" });
+  const [form, setForm] = useState({ email: "", password: "", name: "", business_name: "", address: "", city: "", identification_number: "", establishment_type: "grocery", card_name: "", card_number: "", card_expiry: "", bank_name: "", iban: "" });
 
   const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
 
@@ -98,6 +98,40 @@ export default function Auth({ mode }) {
                 <div><Label htmlFor="name">{t("auth.contactName")}</Label><Input id="name" required value={form.name} onChange={set("name")} className="mt-1.5" data-testid="register-name" /></div>
                 <div><Label htmlFor="business">{t("auth.businessName")}</Label><Input id="business" required value={form.business_name} onChange={set("business_name")} className="mt-1.5" data-testid="register-business" /></div>
                 <div><Label htmlFor="address">{t("auth.businessAddress")}</Label><Input id="address" value={form.address} onChange={set("address")} className="mt-1.5" data-testid="register-address" /></div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div><Label htmlFor="city">{t("reg.city")}</Label><Input id="city" value={form.city} onChange={set("city")} className="mt-1.5" data-testid="register-city" placeholder="Tbilisi" /></div>
+                  <div><Label htmlFor="idn">{role === "supplier" ? t("reg.idSupplier") : t("reg.identification")}</Label><Input id="idn" required value={form.identification_number} onChange={set("identification_number")} className="mt-1.5" data-testid="register-identification" placeholder="ს/კ" /></div>
+                </div>
+                {role === "retailer" && (
+                  <>
+                    <div><Label htmlFor="est">{t("reg.establishmentType")}</Label>
+                      <select id="est" value={form.establishment_type} onChange={set("establishment_type")} data-testid="register-establishment" className="mt-1.5 h-10 w-full rounded-md border border-input bg-background px-3 text-sm">
+                        {["grocery", "zoo", "carwash", "pharmacy", "horeca", "other"].map((e) => <option key={e} value={e}>{t(`est.${e}`)}</option>)}
+                      </select>
+                    </div>
+                    <div className="rounded-lg border border-border p-3">
+                      <p className="mb-2 text-sm font-semibold">{t("reg.cardSection")}</p>
+                      <div className="space-y-2">
+                        <Input value={form.card_name} onChange={set("card_name")} placeholder={t("reg.cardName")} data-testid="register-card-name" />
+                        <Input value={form.card_number} onChange={set("card_number")} placeholder={t("reg.cardNumber")} data-testid="register-card-number" />
+                        <div className="grid grid-cols-2 gap-2">
+                          <Input value={form.card_expiry} onChange={set("card_expiry")} placeholder={t("reg.expiry")} data-testid="register-card-expiry" />
+                          <Input placeholder={t("reg.cvc")} data-testid="register-card-cvc" />
+                        </div>
+                        <p className="text-[11px] text-muted-foreground">{t("reg.saveCard")}</p>
+                      </div>
+                    </div>
+                  </>
+                )}
+                {role === "supplier" && (
+                  <div className="rounded-lg border border-border p-3">
+                    <p className="mb-2 text-sm font-semibold">{t("reg.bankSection")}</p>
+                    <div className="space-y-2">
+                      <Input value={form.bank_name} onChange={set("bank_name")} placeholder={t("reg.bankName")} data-testid="register-bank-name" />
+                      <Input value={form.iban} onChange={set("iban")} placeholder={t("reg.iban")} data-testid="register-iban" />
+                    </div>
+                  </div>
+                )}
               </>
             )}
             <div><Label htmlFor="email">{t("auth.email")}</Label><Input id="email" type="email" required value={form.email} onChange={set("email")} className="mt-1.5" data-testid="auth-email" placeholder="you@business.com" /></div>

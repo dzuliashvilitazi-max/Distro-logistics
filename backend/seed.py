@@ -71,14 +71,21 @@ async def seed_data(db, hash_password):
         await db.users.insert_one({
             "id": sid, "email": s["email"], "password_hash": hash_password("Password@123"),
             "name": s["name"], "role": "supplier", "business_name": s["business_name"],
-            "address": s["address"], "phone": "+1-555-0100", "status": "active", "created_at": iso(25),
+            "address": s["address"], "phone": "+995-555-0100",
+            "city": ["Tbilisi", "Batumi", "Kutaisi"][SUPPLIERS.index(s) % 3],
+            "identification_number": "20500" + str(SUPPLIERS.index(s) + 1).zfill(4),
+            "bank_name": ["TBC Bank", "Bank of Georgia", "Liberty Bank"][SUPPLIERS.index(s) % 3],
+            "iban": "GE29TB00000" + str(100000 + SUPPLIERS.index(s)),
+            "status": "active", "created_at": iso(25),
         })
     # one pending supplier for admin approval queue
     pending_id = str(uuid.uuid4())
     await db.users.insert_one({
         "id": pending_id, "email": "newdist@distro.com", "password_hash": hash_password("Password@123"),
         "name": "New Distributor", "role": "supplier", "business_name": "Coastal Goods Supply",
-        "address": "77 Pier Lane", "phone": "", "status": "pending", "created_at": iso(1),
+        "address": "77 Pier Lane", "phone": "", "city": "Batumi",
+        "identification_number": "205099999", "bank_name": "TBC Bank", "iban": "GE29TB00000999999",
+        "status": "pending", "created_at": iso(1),
     })
 
     ret_ids = []
@@ -88,7 +95,12 @@ async def seed_data(db, hash_password):
         await db.users.insert_one({
             "id": rid, "email": r["email"], "password_hash": hash_password("Password@123"),
             "name": r["name"], "role": "retailer", "business_name": r["business_name"],
-            "address": r["address"], "phone": "+1-555-0200", "status": "active", "created_at": iso(20),
+            "address": r["address"], "phone": "+995-555-0200",
+            "city": ["Tbilisi", "Kutaisi"][RETAILERS.index(r) % 2],
+            "identification_number": "0102" + str(RETAILERS.index(r) + 1).zfill(7),
+            "establishment_type": ["grocery", "horeca"][RETAILERS.index(r) % 2],
+            "card_name": r["name"], "card_last4": "4242", "card_expiry": "12/27",
+            "status": "active", "created_at": iso(20),
         })
 
     prod_docs = []
@@ -97,6 +109,7 @@ async def seed_data(db, hash_password):
         sid = sup_ids[p["s"]]
         doc = {"id": pid, "supplier_id": sid, "supplier_name": SUPPLIERS[p["s"]]["business_name"],
                "name": p["name"], "category": p["category"], "price_per_unit": p["price_per_unit"],
+               "city": ["Tbilisi", "Batumi", "Kutaisi"][p["s"] % 3],
                "tier_pricing": p["tier_pricing"], "moq": p["moq"], "stock": p["stock"],
                "image": p["image"], "description": p["description"], "created_at": iso(18)}
         prod_docs.append(doc)

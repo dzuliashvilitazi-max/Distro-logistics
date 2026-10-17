@@ -36,6 +36,7 @@ const NAV = {
     { to: "/admin", key: "overview", testid: "nav-overview", icon: BarChart3 },
     { to: "/admin/orders", key: "orders", testid: "nav-orders", icon: ClipboardList },
     { to: "/admin/users", key: "users", testid: "nav-users", icon: Users },
+    { to: "/admin/settings", key: "settings", testid: "nav-settings", icon: Settings },
     { to: "/messages", key: "messages", testid: "nav-messages", icon: MessageSquare },
     { to: "/profile", key: "profile", testid: "nav-profile", icon: Settings },
   ],

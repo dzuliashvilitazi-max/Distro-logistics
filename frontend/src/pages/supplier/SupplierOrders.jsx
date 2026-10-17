@@ -49,6 +49,7 @@ export default function SupplierOrders() {
                   <div className="flex flex-wrap items-center gap-2.5"><p className="font-mono text-sm font-bold">{o.order_no}</p><StatusBadge status={o.status} /><PaymentBadge method={o.payment_method} /></div>
                   <p className="mt-1 text-sm text-muted-foreground">{tr("orders.from")} <span className="font-medium text-foreground">{o.retailer_name}</span> · {new Date(o.created_at).toLocaleString()}</p>
                   <p className="mt-0.5 text-xs text-muted-foreground">{tr("orders.deliverTo")}: {o.delivery_address} · {o.delivery_window}</p>
+                  {(o.retailer_establishment || o.retailer_tax_id) && <p className="mt-0.5 text-xs text-muted-foreground">{tr("orders.establishment")}: {o.retailer_establishment ? tr(`est.${o.retailer_establishment}`) : "—"} · {tr("orders.taxId")}: {o.retailer_tax_id || "—"}</p>}
                 </div>
                 <p className="text-xl font-extrabold">₾{o.total.toFixed(2)}</p>
               </div>

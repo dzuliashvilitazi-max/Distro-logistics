@@ -22,6 +22,8 @@ export default function Inventory() {
   const [form, setForm] = useState(EMPTY);
   const [deleteId, setDeleteId] = useState(null);
   const [imgLoading, setImgLoading] = useState(false);
+  const [cats, setCats] = useState([]);
+  useEffect(() => { api.get("/categories").then((r) => setCats(r.data)); }, []);
   const camRef = useRef(null);
   const galRef = useRef(null);
 
@@ -69,7 +71,7 @@ export default function Inventory() {
 
   const save = async () => {
     const tiers = form.tier_pricing.filter((x) => x.min_qty && x.price).map((x) => ({ min_qty: parseInt(x.min_qty), price: parseFloat(x.price) }));
-    const payload = { name: form.name, category: form.category, price_per_unit: parseFloat(form.price_per_unit) || 0,
+    const payload = { name: form.name, category: form.category, city: form.city || "", price_per_unit: parseFloat(form.price_per_unit) || 0,
       moq: parseInt(form.moq) || 1, stock: parseInt(form.stock) || 0, image: form.image, description: form.description, tier_pricing: tiers };
     if (!payload.name) { toast.error(t("inv.nameRequired")); return; }
     try {
@@ -127,9 +129,10 @@ export default function Inventory() {
           <div className="space-y-3">
             <div><Label>{t("inv.productName")}</Label><Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className="mt-1.5" data-testid="product-name" /></div>
             <div className="grid grid-cols-2 gap-3">
-              <div><Label>{t("common.category")}</Label><select value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })} className="mt-1.5 h-10 w-full rounded-md border border-input bg-background px-3 text-sm" data-testid="product-category">{CATEGORY_VALUES.map((c) => <option key={c} value={c}>{t(categoryKey(c))}</option>)}</select></div>
+              <div><Label>{t("common.category")}</Label><select value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })} className="mt-1.5 h-10 w-full rounded-md border border-input bg-background px-3 text-sm" data-testid="product-category">{(cats.length ? cats : CATEGORY_VALUES).map((c) => <option key={c} value={c}>{t(categoryKey(c))}</option>)}</select></div>
               <div><Label>{t("inv.basePrice")}</Label><Input type="number" value={form.price_per_unit} onChange={(e) => setForm({ ...form, price_per_unit: e.target.value })} className="mt-1.5" data-testid="product-price" /></div>
             </div>
+            <div><Label>{t("reg.city")}</Label><Input value={form.city || ""} onChange={(e) => setForm({ ...form, city: e.target.value })} className="mt-1.5" data-testid="product-city" placeholder="Tbilisi" /></div>
             <div className="grid grid-cols-2 gap-3">
               <div><Label>{t("inv.moqUnits")}</Label><Input type="number" value={form.moq} onChange={(e) => setForm({ ...form, moq: e.target.value })} className="mt-1.5" data-testid="product-moq" /></div>
               <div><Label>{t("common.stock")}</Label><Input type="number" value={form.stock} onChange={(e) => setForm({ ...form, stock: e.target.value })} className="mt-1.5" data-testid="product-stock" /></div>

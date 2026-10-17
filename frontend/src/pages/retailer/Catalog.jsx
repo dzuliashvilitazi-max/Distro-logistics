@@ -11,26 +11,30 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
-const CATEGORIES = ["All Products", "Beverages", "Groceries", "Snacks & Sweets", "Dry Goods"];
+const CATEGORIES_UNUSED = [];
 
 export default function Catalog() {
   const { t } = useI18n();
   const [products, setProducts] = useState([]);
+  const [cats, setCats] = useState([]);
   const [category, setCategory] = useState("All Products");
+  const [city, setCity] = useState("All Cities");
   const [search, setSearch] = useState("");
   const [inStockOnly, setInStockOnly] = useState(false);
   const [selected, setSelected] = useState(null);
   const { addItem } = useCart();
 
   const load = () => api.get("/products").then((r) => setProducts(r.data));
-  useEffect(() => { load(); }, []);
+  useEffect(() => { load(); api.get("/categories").then((r) => setCats(r.data)); }, []);
 
+  const cities = useMemo(() => ["All Cities", ...Array.from(new Set(products.map((p) => p.city).filter(Boolean)))], [products]);
   const filtered = useMemo(() => products.filter((p) => {
     if (category !== "All Products" && p.category !== category) return false;
+    if (city !== "All Cities" && p.city !== city) return false;
     if (search && !p.name.toLowerCase().includes(search.toLowerCase())) return false;
     if (inStockOnly && p.stock <= 0) return false;
     return true;
-  }), [products, category, search, inStockOnly]);
+  }), [products, category, city, search, inStockOnly]);
 
   return (
     <div>
@@ -47,10 +51,13 @@ export default function Catalog() {
         <Button variant={inStockOnly ? "default" : "outline"} onClick={() => setInStockOnly((v) => !v)} data-testid="filter-instock">
           <Filter className="mr-1.5 h-4 w-4" /> {t("catalog.inStockOnly")}
         </Button>
+        <select value={city} onChange={(e) => setCity(e.target.value)} data-testid="city-filter" className="h-10 rounded-md border border-input bg-background px-3 text-sm">
+          {cities.map((c) => <option key={c} value={c}>{c === "All Cities" ? t("catalog.allCities") : c}</option>)}
+        </select>
       </div>
 
       <div className="mb-6 flex flex-wrap gap-2">
-        {CATEGORIES.map((c) => (
+        {["All Products", ...cats].map((c) => (
           <button key={c} onClick={() => setCategory(c)} data-testid={`category-${c.replace(/\s|&/g, "-")}`}
             className={cn("rounded-full border px-4 py-1.5 text-sm font-medium transition-colors duration-200",
               category === c ? "border-primary bg-primary text-primary-foreground" : "border-border text-muted-foreground hover:border-primary/40 hover:text-foreground")}>
