@@ -69,7 +69,7 @@ export default function Catalog() {
           {filtered.map((p) => (
             <div key={p.id} data-testid={`product-card-${p.id}`} className="group flex flex-col overflow-hidden rounded-xl border border-border bg-card transition-all duration-200 hover:border-primary/40 hover:shadow-lg">
               <div className="relative aspect-[4/3] overflow-hidden bg-secondary">
-                <img src={p.image} alt={p.name} className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105" />
+                <img src={p.image || "https://images.unsplash.com/photo-1553413077-190dd305871c?w=600"} alt={p.name} className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105" />
                 <Badge className="absolute left-3 top-3 bg-background/90 text-foreground backdrop-blur">{p.category}</Badge>
                 {p.stock <= 0 ? <Badge className="absolute right-3 top-3 bg-rose-500 text-white">Out of stock</Badge>
                   : p.stock < 50 ? <Badge className="absolute right-3 top-3 bg-amber-500 text-white">Low: {p.stock}</Badge> : null}
