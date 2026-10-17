@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { StatusBadge } from "@/components/StatusBadge";
+import { CardForm } from "@/components/CardForm";
 import { toast } from "sonner";
 
 export default function Profile() {
@@ -45,23 +46,19 @@ export default function Profile() {
             <div><Label htmlFor="idn">{t("prof.identification")}</Label><Input id="idn" value={form.identification_number} onChange={(e) => setForm({ ...form, identification_number: e.target.value })} className="mt-1.5" data-testid="profile-identification" /></div>
           </div>
           {user.role === "retailer" && (
-            <div className="rounded-lg border border-border p-3">
-              <p className="mb-2 text-sm font-semibold">{t("prof.payment")}{user.card_last4 ? ` · ${t("prof.cardOnFile")} ••••${user.card_last4}` : ""}</p>
-              <div className="space-y-2">
-                <Input value={form.card_name} onChange={(e) => setForm({ ...form, card_name: e.target.value })} placeholder={t("reg.cardName")} data-testid="profile-card-name" />
-                <Input value={form.card_number} onChange={(e) => setForm({ ...form, card_number: e.target.value })} placeholder={t("reg.cardNumber")} data-testid="profile-card-number" />
-                <Input value={form.card_expiry} onChange={(e) => setForm({ ...form, card_expiry: e.target.value })} placeholder={t("reg.expiry")} data-testid="profile-card-expiry" />
-              </div>
-            </div>
+            <CardForm />
           )}
           {user.role === "supplier" && (
-            <div className="rounded-lg border border-border p-3">
-              <p className="mb-2 text-sm font-semibold">{t("prof.banking")}</p>
-              <div className="space-y-2">
-                <Input value={form.bank_name} onChange={(e) => setForm({ ...form, bank_name: e.target.value })} placeholder={t("reg.bankName")} data-testid="profile-bank-name" />
-                <Input value={form.iban} onChange={(e) => setForm({ ...form, iban: e.target.value })} placeholder={t("reg.iban")} data-testid="profile-iban" />
+            <>
+              <CardForm note={t("card.autoDebitNote")} />
+              <div className="rounded-lg border border-border p-3">
+                <p className="mb-2 text-sm font-semibold">{t("prof.banking")}</p>
+                <div className="space-y-2">
+                  <Input value={form.bank_name} onChange={(e) => setForm({ ...form, bank_name: e.target.value })} placeholder={t("reg.bankName")} data-testid="profile-bank-name" />
+                  <Input value={form.iban} onChange={(e) => setForm({ ...form, iban: e.target.value })} placeholder={t("reg.iban")} data-testid="profile-iban" />
+                </div>
               </div>
-            </div>
+            </>
           )}
           <div><Label htmlFor="ad">{user.role === "supplier" ? t("prof.warehouseAddress") : t("prof.storeAddress")}</Label><Textarea id="ad" value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} className="mt-1.5" rows={2} data-testid="profile-address" /></div>
           <Button type="submit" disabled={saving} data-testid="save-profile-btn"><Save className="mr-1.5 h-4 w-4" /> {saving ? t("common.saving") : t("prof.saveChanges")}</Button>

@@ -23,6 +23,7 @@ from fastapi import Header, BackgroundTasks
 from fastapi.responses import StreamingResponse
 from email_service import try_send_email, invoice_email_html, reminder_email_html
 from invoices import build_invoice_pdf
+from payments import validate_card, gen_token, simulate_hold, simulate_charge, CardError
 
 mongo_url = os.environ['MONGO_URL']
 client = AsyncIOMotorClient(mongo_url)
@@ -304,10 +305,20 @@ async def create_order(body: OrderIn, user: dict = Depends(require_role("retaile
         names = ", ".join(f.get("business_name", "supplier") for f in frozen)
         raise HTTPException(403, f"Cannot place order: {names} is temporarily frozen due to overdue commission billing.")
     settings = await get_settings()
+    online = body.payment_method == "online"
+    grand_total = round(sum(i.unit_price * i.quantity for i in body.items), 2)
+    charge_id = None
+    if online:
+        if not user.get("card_verified"):
+            raise HTTPException(400, "Add a verified payment card before paying online.")
+        try:
+            charge_id = simulate_charge(user.get("card_sim_status", "ok"), grand_total)
+        except CardError as e:
+            raise HTTPException(402, f"Payment failed: {e}")
     created = []
     for sid in supplier_ids:
         items = [i for i in body.items if i.supplier_id == sid]
-        total = sum(i.unit_price * i.quantity for i in items)
+        total = round(sum(i.unit_price * i.quantity for i in items), 2)
         supplier = await db.users.find_one({"id": sid})
         fee = compute_fee(total, settings)
         payer = settings["fee_payer"]
@@ -319,7 +330,7 @@ async def create_order(body: OrderIn, user: dict = Depends(require_role("retaile
             "retailer_establishment": user.get("establishment_type", ""),
             "supplier_id": sid, "supplier_name": supplier["business_name"] if supplier else "Supplier",
             "supplier_tax_id": supplier.get("identification_number", "") if supplier else "",
-            "items": [i.model_dump() for i in items], "total": round(total, 2),
+            "items": [i.model_dump() for i in items], "total": total,
             "service_fee": fee, "fee_payer": payer, "fee_type": settings["fee_type"], "fee_value": settings["fee_value"],
             "status": "Pending", "delivery_address": body.delivery_address,
             "notes": body.notes or "", "delivery_window": body.delivery_window or "",
@@ -327,13 +338,27 @@ async def create_order(body: OrderIn, user: dict = Depends(require_role("retaile
             "timeline": [{"status": "Pending", "at": now_iso()}],
             "created_at": now_iso(), "updated_at": now_iso(),
         }
+        if online:
+            payout = round(total - fee, 2)
+            order.update({"paid_at_checkout": True, "commission_settled": True, "commission_amount": fee,
+                          "supplier_payout": payout, "payment_ref": charge_id})
+            await db.payouts.insert_one({
+                "id": str(uuid.uuid4()), "order_id": oid, "order_no": order["order_no"],
+                "supplier_id": sid, "supplier_name": order["supplier_name"],
+                "retailer_name": user["business_name"], "order_total": total, "commission": fee,
+                "supplier_payout": payout, "currency": "GEL", "method": "checkout_card",
+                "status": "settled", "created_at": now_iso(),
+            })
         await db.orders.insert_one(dict(order))
         # decrement stock
         for i in items:
             await db.products.update_one({"id": i.product_id}, {"$inc": {"stock": -i.quantity}})
-        await notify(sid, f"New order {order['order_no']} from {user['business_name']} (${order['total']})", "order")
+        if online:
+            await notify(sid, f"New PAID order {order['order_no']} from {user['business_name']} (₾{total:.2f}) — payout ₾{order['supplier_payout']:.2f} after ₾{fee:.2f} commission", "order")
+        else:
+            await notify(sid, f"New order {order['order_no']} from {user['business_name']} (₾{total:.2f})", "order")
         created.append(clean(order))
-    return {"orders": created}
+    return {"orders": created, "paid": online, "charged": grand_total if online else 0}
 
 @api.get("/orders")
 async def list_orders(user: dict = Depends(get_current_user)):
@@ -593,7 +618,7 @@ async def do_generate_invoices(period=None):
             continue
         orders = await db.orders.find({"supplier_id": sup["id"], "status": "Delivered",
             "delivered_at": {"$gte": start.isoformat(), "$lt": nxt.isoformat()}}, {"_id": 0}).to_list(5000)
-        orders = [o for o in orders if not o.get("invoice_id")]
+        orders = [o for o in orders if not o.get("invoice_id") and not o.get("paid_at_checkout")]
         if not orders:
             continue
         line_items, amount, sales = [], 0.0, 0.0
@@ -722,18 +747,22 @@ async def admin_financials(user: dict = Depends(require_role("admin"))):
             i["effective_status"] = effective_status(i)
         cur = await db.orders.find({"supplier_id": sup["id"], "status": "Delivered",
             "delivered_at": {"$gte": cs.isoformat(), "$lt": cn.isoformat()}}, {"_id": 0}).to_list(5000)
-        cur = [o for o in cur if not o.get("invoice_id")]
+        cur = [o for o in cur if not o.get("invoice_id") and not o.get("paid_at_checkout")]
         accrued = round(sum(order_commission(o) for o in cur), 2)
         month_sales = round(sum(float(o.get("total", 0)) for o in cur), 2)
+        chk = await db.orders.find({"supplier_id": sup["id"], "paid_at_checkout": True,
+            "created_at": {"$gte": cs.isoformat(), "$lt": cn.isoformat()}}, {"_id": 0}).to_list(5000)
+        checkout_collected = round(sum(order_commission(o) for o in chk), 2)
         outstanding = round(sum(i["amount"] for i in s_invs if i["effective_status"] != "paid"), 2)
-        collected = round(sum(i["amount"] for i in s_invs if i["effective_status"] == "paid"), 2)
+        collected = round(sum(i["amount"] for i in s_invs if i["effective_status"] == "paid") + checkout_collected, 2)
         tot_outstanding += outstanding
         tot_accrued += accrued
         tot_collected += collected
         rows.append({"supplier_id": sup["id"], "supplier_name": sup.get("business_name", ""),
                      "email": sup.get("email", ""), "tax_id": sup.get("identification_number", ""),
                      "frozen": bool(sup.get("billing_frozen")), "month_sales": month_sales,
-                     "accrued_commission": accrued, "outstanding": outstanding, "collected": collected,
+                     "accrued_commission": accrued, "checkout_collected": checkout_collected,
+                     "outstanding": outstanding, "collected": collected,
                      "invoices": s_invs})
     return {"period_label": clabel, "suppliers": rows,
             "totals": {"outstanding": round(tot_outstanding, 2), "accrued": round(tot_accrued, 2),
@@ -763,6 +792,101 @@ async def cron_billing_check(background: BackgroundTasks, authorization: Optiona
     _check_cron_auth(authorization)
     background.add_task(do_billing_check)
     return {"accepted": True}
+
+
+# ---------- payment cards & checkout split (sandbox gateway) ----------
+class CardIn(BaseModel):
+    number: str
+    exp: str
+    cvc: str
+    name: Optional[str] = ""
+
+
+def _card_public(u: dict):
+    if not u.get("card_verified"):
+        return None
+    return {"brand": u.get("card_brand", "card"), "last4": u.get("card_last4", ""),
+            "exp": u.get("card_expiry", ""), "name": u.get("card_name", ""), "verified": True}
+
+
+@api.post("/payments/cards")
+async def add_card(body: CardIn, user: dict = Depends(get_current_user)):
+    try:
+        info = validate_card(body.number, body.exp, body.cvc)
+    except CardError as e:
+        raise HTTPException(400, str(e))
+    try:
+        simulate_hold(info["sim_status"], 1.0)  # 1 GEL validation hold, released immediately
+    except CardError as e:
+        raise HTTPException(402, f"Card validation failed: {e}")
+    upd = {"card_token": gen_token(), "card_brand": info["brand"], "card_last4": info["last4"],
+           "card_expiry": info["exp"], "card_name": body.name or user.get("card_name", ""),
+           "card_verified": True, "card_sim_status": info["sim_status"]}
+    await db.users.update_one({"id": user["id"]}, {"$set": upd})
+    return {"card": _card_public({**user, **upd})}
+
+
+@api.get("/payments/cards")
+async def get_card(user: dict = Depends(get_current_user)):
+    return {"card": _card_public(user)}
+
+
+@api.delete("/payments/cards")
+async def delete_card(user: dict = Depends(get_current_user)):
+    await db.users.update_one({"id": user["id"]}, {"$set": {"card_verified": False, "card_token": "", "card_sim_status": ""}})
+    return {"ok": True}
+
+
+@api.get("/payments/payouts")
+async def list_payouts(user: dict = Depends(get_current_user)):
+    if user["role"] == "supplier":
+        q = {"supplier_id": user["id"]}
+    elif user["role"] == "admin":
+        q = {}
+    else:
+        raise HTTPException(403, "Not allowed")
+    return await db.payouts.find(q, {"_id": 0}).sort("created_at", -1).to_list(1000)
+
+
+async def do_auto_debit():
+    now = datetime.now(timezone.utc)
+    invs = await db.invoices.find({"status": {"$ne": "paid"}}, {"_id": 0}).to_list(2000)
+    charged = []
+    for inv in invs:
+        try:
+            due = datetime.fromisoformat(inv["due_date"])
+        except Exception:
+            continue
+        if now < due:
+            continue  # not yet due
+        sup = await db.users.find_one({"id": inv["supplier_id"]}, {"_id": 0})
+        if not sup or not sup.get("card_verified"):
+            continue
+        try:
+            ref = simulate_charge(sup.get("card_sim_status", "ok"), inv["amount"])
+        except CardError:
+            await notify(inv["supplier_id"], f"Auto-debit failed for invoice {inv['invoice_no']}. Please update your card or pay manually.", "billing")
+            continue
+        await db.invoices.update_one({"id": inv["id"]}, {"$set": {"status": "paid", "paid_at": now_iso(),
+                                                                  "payment_ref": ref, "auto_debited": True}})
+        await recompute_freeze(inv["supplier_id"])
+        await notify(inv["supplier_id"], f"Invoice {inv['invoice_no']} (₾{inv['amount']:.2f}) was auto-debited from your saved card.", "billing")
+        charged.append(inv["invoice_no"])
+    return charged
+
+
+@api.post("/cron/auto-debit")
+async def cron_auto_debit(background: BackgroundTasks, authorization: Optional[str] = Header(None)):
+    # Cron endpoints must ack 2xx immediately; enqueue/background the actual work.
+    _check_cron_auth(authorization)
+    background.add_task(do_auto_debit)
+    return {"accepted": True}
+
+
+@api.post("/admin/auto-debit/run")
+async def admin_run_auto_debit(user: dict = Depends(require_role("admin"))):
+    charged = await do_auto_debit()
+    return {"charged": charged, "count": len(charged)}
 
 
 app.include_router(api)

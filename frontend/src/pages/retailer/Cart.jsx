@@ -23,7 +23,7 @@ export default function Cart() {
   const [address, setAddress] = useState(user.address || "");
   const [notes, setNotes] = useState("");
   const [window, setWindow] = useState("9am - 12pm");
-  const [payment, setPayment] = useState(user.card_last4 ? "saved_card" : "cash");
+  const [payment, setPayment] = useState(user.card_verified ? "online" : "cash");
   const [settings, setSettings] = useState(null);
   const [placing, setPlacing] = useState(false);
   useEffect(() => { api.get("/settings").then((r) => setSettings(r.data)); }, []);
@@ -39,7 +39,7 @@ export default function Cart() {
     try {
       const payload = {
         items: lines.map((l) => ({ product_id: l.product_id, name: l.name, image: l.image, supplier_id: l.supplier_id, quantity: l.quantity, unit_price: l.unit })),
-        delivery_address: address, notes, delivery_window: window, payment_method: payment === "saved_card" ? "card" : payment,
+        delivery_address: address, notes, delivery_window: window, payment_method: payment,
       };
       const { data } = await api.post("/orders", payload);
       clear();
@@ -98,12 +98,12 @@ export default function Cart() {
             <div>
               <Label>{t("checkout.paymentMethod")}</Label>
               <div className="mt-1.5 space-y-2" data-testid="payment-method-group">
-                {user.card_last4 && (
-                  <button type="button" onClick={() => setPayment("saved_card")} data-testid="payment-option-saved_card"
-                    className={cn("flex w-full items-center gap-3 rounded-lg border-2 px-3 py-2.5 text-left transition-colors duration-200", payment === "saved_card" ? "border-primary bg-primary/5" : "border-border hover:border-primary/40")}>
-                    <CreditCard className={cn("h-5 w-5 shrink-0", payment === "saved_card" ? "text-primary" : "text-muted-foreground")} />
-                    <span className="text-sm font-medium">{t("checkout.savedCard")} ••••{user.card_last4}</span>
-                    <span className={cn("ml-auto h-4 w-4 rounded-full border-2", payment === "saved_card" ? "border-primary bg-primary" : "border-muted-foreground")} />
+                {user.card_verified && (
+                  <button type="button" onClick={() => setPayment("online")} data-testid="payment-option-online"
+                    className={cn("flex w-full items-center gap-3 rounded-lg border-2 px-3 py-2.5 text-left transition-colors duration-200", payment === "online" ? "border-primary bg-primary/5" : "border-border hover:border-primary/40")}>
+                    <CreditCard className={cn("h-5 w-5 shrink-0", payment === "online" ? "text-primary" : "text-muted-foreground")} />
+                    <span className="text-sm font-medium">{t("pay.online")} · {(user.card_brand || "card").toUpperCase()} ••••{user.card_last4}</span>
+                    <span className={cn("ml-auto h-4 w-4 rounded-full border-2", payment === "online" ? "border-primary bg-primary" : "border-muted-foreground")} />
                   </button>
                 )}
                 {PAYMENT_METHODS.map((m) => {

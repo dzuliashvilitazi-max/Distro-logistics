@@ -76,6 +76,9 @@ async def seed_data(db, hash_password):
             "identification_number": "20500" + str(SUPPLIERS.index(s) + 1).zfill(4),
             "bank_name": ["TBC Bank", "Bank of Georgia", "Liberty Bank"][SUPPLIERS.index(s) % 3],
             "iban": "GE29TB00000" + str(100000 + SUPPLIERS.index(s)),
+            "card_name": s["name"], "card_last4": "4242", "card_expiry": "11/28",
+            "card_brand": "visa", "card_token": "pm_sim_seedS" + str(SUPPLIERS.index(s)),
+            "card_verified": True, "card_sim_status": "ok",
             "status": "active", "created_at": iso(25),
         })
     # one pending supplier for admin approval queue
@@ -100,6 +103,8 @@ async def seed_data(db, hash_password):
             "identification_number": "0102" + str(RETAILERS.index(r) + 1).zfill(7),
             "establishment_type": ["grocery", "horeca"][RETAILERS.index(r) % 2],
             "card_name": r["name"], "card_last4": "4242", "card_expiry": "12/27",
+            "card_brand": "visa", "card_token": "pm_sim_seedR" + str(RETAILERS.index(r)),
+            "card_verified": True, "card_sim_status": "ok",
             "status": "active", "created_at": iso(20),
         })
 

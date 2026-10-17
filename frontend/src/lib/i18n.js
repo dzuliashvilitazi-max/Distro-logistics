@@ -133,6 +133,12 @@ const en = {
   "bill.issuerSettings": "Invoice Issuer / Bank Details", "bill.issuerName": "Legal business name",
   "bill.issuerTaxId": "Issuer Tax ID", "bill.issuerIban": "Issuer IBAN", "bill.saveIssuer": "Save Issuer Details",
   "bill.issuerSaved": "Issuer details saved", "bill.noSuppliers": "No suppliers yet.",
+  "pay.online": "Pay online now",
+  "card.title": "Payment Card on File", "card.number": "Card number", "card.cvc": "CVC",
+  "card.nameOnCard": "Name on card", "card.save": "Validate & Save Card", "card.saved": "Card validated and saved",
+  "card.removed": "Card removed", "card.sandboxNote": "Sandbox mode — use test card 4242 4242 4242 4242, any future expiry, any CVC. A 1 GEL hold validates the card, then is released. No real charge.",
+  "card.autoDebitNote": "Outstanding commission is auto-debited from this card on the 6th.",
+  "card.needCard": "Add a verified card in your profile to pay online.",
 };
 
 const ka = {
@@ -254,6 +260,12 @@ const ka = {
   "bill.issuerSettings": "ინვოისის გამცემი / საბანკო მონაცემები", "bill.issuerName": "იურიდიული დასახელება",
   "bill.issuerTaxId": "გამცემის საიდ. კოდი", "bill.issuerIban": "გამცემის IBAN", "bill.saveIssuer": "მონაცემების შენახვა",
   "bill.issuerSaved": "მონაცემები შენახულია", "bill.noSuppliers": "მომწოდებლები ჯერ არ არის.",
+  "pay.online": "გადაიხადე ახლა ბარათით",
+  "card.title": "შენახული გადახდის ბარათი", "card.number": "ბარათის ნომერი", "card.cvc": "CVC",
+  "card.nameOnCard": "ბარათის მფლობელი", "card.save": "ბარათის დადასტურება და შენახვა", "card.saved": "ბარათი დადასტურდა და შეინახა",
+  "card.removed": "ბარათი წაიშალა", "card.sandboxNote": "სატესტო რეჟიმი — გამოიყენეთ ბარათი 4242 4242 4242 4242, ნებისმიერი მომავალი ვადა, ნებისმიერი CVC. ვერიფიკაციისთვის იჭერება 1 ₾, შემდეგ ბრუნდება. რეალური გადახდა არ ხდება.",
+  "card.autoDebitNote": "დავალიანებული საკომისიო ავტომატურად ჩამოიჭრება ამ ბარათიდან 6 რიცხვში.",
+  "card.needCard": "ონლაინ გადასახდელად დაამატეთ დადასტურებული ბარათი პროფილში.",
 };
 
 const ru = {
@@ -375,6 +387,12 @@ const ru = {
   "bill.issuerSettings": "Реквизиты эмитента счёта / банк", "bill.issuerName": "Юридическое название",
   "bill.issuerTaxId": "Налоговый ID эмитента", "bill.issuerIban": "IBAN эмитента", "bill.saveIssuer": "Сохранить реквизиты",
   "bill.issuerSaved": "Реквизиты сохранены", "bill.noSuppliers": "Поставщиков пока нет.",
+  "pay.online": "Оплатить картой сейчас",
+  "card.title": "Сохранённая платёжная карта", "card.number": "Номер карты", "card.cvc": "CVC",
+  "card.nameOnCard": "Имя на карте", "card.save": "Проверить и сохранить карту", "card.saved": "Карта проверена и сохранена",
+  "card.removed": "Карта удалена", "card.sandboxNote": "Тестовый режим — карта 4242 4242 4242 4242, любой будущий срок, любой CVC. Для проверки удерживается 1 ₾, затем возврат. Реальных списаний нет.",
+  "card.autoDebitNote": "Задолженность по комиссии списывается с этой карты 6-го числа.",
+  "card.needCard": "Добавьте проверенную карту в профиле для онлайн-оплаты.",
 };
 
 export const translations = { en, ka, ru };

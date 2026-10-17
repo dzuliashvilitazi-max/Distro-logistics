@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { api, formatApiError } from "@/lib/api";
 import { useI18n } from "@/context/I18nContext";
 import { StatusBadge } from "@/components/StatusBadge";
+import { CardForm } from "@/components/CardForm";
 import { FileText, Download, AlertTriangle, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
@@ -47,6 +48,8 @@ export default function SupplierInvoices() {
           <p className="font-medium">{t("bill.frozenBanner")}</p>
         </div>
       )}
+
+      <CardForm note={t("card.autoDebitNote")} />
 
       {invoices.length === 0 ? (
         <div className="rounded-xl border border-dashed border-border py-16 text-center text-muted-foreground" data-testid="no-invoices">

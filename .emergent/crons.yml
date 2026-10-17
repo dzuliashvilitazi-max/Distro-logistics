@@ -7,6 +7,14 @@ crons:
     method: POST
     # Cron endpoints must ack 2xx immediately; enqueue/background the actual work.
     enabled: true
+  - name: auto-debit
+    description: "Auto-debits outstanding cash-order commission from supplier saved cards on the 6th"
+    # 07:00 UTC on the 6th = 11:00 Asia/Tbilisi; day-of-month restricts to UTC.
+    cron: "0 7 6 * *"
+    endpoint: "{{BASE_URL}}/api/cron/auto-debit"
+    method: POST
+    # Cron endpoints must ack 2xx immediately; enqueue/background the actual work.
+    enabled: true
   - name: billing-check
     description: "Daily: marks overdue invoices, freezes suppliers, emails overdue reminders"
     cron: "0 6 * * *"
