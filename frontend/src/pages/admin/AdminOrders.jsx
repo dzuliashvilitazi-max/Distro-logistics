@@ -24,7 +24,7 @@ export function PaymentBadge({ method }) {
 export default function AdminOrders() {
   const { t } = useI18n();
   const [orders, setOrders] = useState([]);
-  useEffect(() => { api.get("/orders").then((r) => setOrders(r.data)); const t = setInterval(() => api.get("/orders").then((r) => setOrders(r.data)), 8000); return () => clearInterval(t); }, []);
+  useEffect(() => { const load = () => api.get("/orders").then((r) => setOrders(r.data)); load(); const iv = setInterval(load, 8000); return () => clearInterval(iv); }, []);
 
   return (
     <div>
@@ -35,7 +35,7 @@ export default function AdminOrders() {
         <div className="overflow-x-auto rounded-xl border border-border bg-card">
           <table className="w-full text-sm">
             <thead className="border-b border-border bg-secondary/50"><tr className="text-left font-mono text-[11px] uppercase tracking-wider text-muted-foreground">
-              <th className="px-4 py-3">Order</th><th className="px-4 py-3">{t("orders.retailer")}</th><th className="px-4 py-3">{t("orders.supplier")}</th>
+              <th className="px-4 py-3">{t("orders.order")}</th><th className="px-4 py-3">{t("orders.retailer")}</th><th className="px-4 py-3">{t("orders.supplier")}</th>
               <th className="px-4 py-3">{t("orders.payment")}</th><th className="px-4 py-3">{t("common.status")}</th><th className="px-4 py-3 text-right">{t("common.total")}</th>
             </tr></thead>
             <tbody>

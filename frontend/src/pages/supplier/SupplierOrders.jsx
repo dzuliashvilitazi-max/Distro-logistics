@@ -17,10 +17,10 @@ export default function SupplierOrders() {
   const [tab, setTab] = useState("All");
 
   const load = () => api.get("/orders").then((r) => setOrders(r.data));
-  useEffect(() => { load(); const t = setInterval(load, 7000); return () => clearInterval(t); }, []);
+  useEffect(() => { load(); const iv = setInterval(load, 7000); return () => clearInterval(iv); }, []);
 
   const update = async (id, status) => {
-    try { await api.put(`/orders/${id}/status`, { status }); toast.success(`Order marked ${status}`); load(); }
+    try { await api.put(`/orders/${id}/status`, { status }); toast.success(`${tr("orders.orderMarked")} ${tr(`status.${status}`)}`); load(); }
     catch (e) { toast.error(formatApiError(e.response?.data?.detail)); }
   };
 
@@ -30,10 +30,10 @@ export default function SupplierOrders() {
     <div>
       <h1 className="mb-6 text-2xl font-bold tracking-tight sm:text-3xl">{tr("orders.orderManagement")}</h1>
       <div className="mb-6 flex flex-wrap gap-2">
-        {TABS.map((t) => (
-          <button key={t} onClick={() => setTab(t)} data-testid={`order-tab-${t.replace(/\s/g, "-")}`}
-            className={cn("rounded-full border px-3.5 py-1.5 text-sm font-medium transition-colors duration-200", tab === t ? "border-primary bg-primary text-primary-foreground" : "border-border text-muted-foreground hover:text-foreground")}>
-            {t} {t !== "All" && <span className="font-mono">({orders.filter((o) => o.status === t).length})</span>}
+        {TABS.map((tb) => (
+          <button key={tb} onClick={() => setTab(tb)} data-testid={`order-tab-${tb.replace(/\s/g, "-")}`}
+            className={cn("rounded-full border px-3.5 py-1.5 text-sm font-medium transition-colors duration-200", tab === tb ? "border-primary bg-primary text-primary-foreground" : "border-border text-muted-foreground hover:text-foreground")}>
+            {tb === "All" ? tr("usr.all") : tr(`status.${tb}`)} {tb !== "All" && <span className="font-mono">({orders.filter((o) => o.status === tb).length})</span>}
           </button>
         ))}
       </div>
@@ -55,22 +55,22 @@ export default function SupplierOrders() {
 
               <div className="my-3 space-y-1.5 border-y border-border py-3">
                 {o.items.map((i) => (
-                  <div key={i.product_id} className="flex items-center gap-3 text-sm"><img src={i.image} alt="" className="h-9 w-9 rounded border border-border object-cover" /><span className="flex-1 truncate">{i.name}</span><span className="font-mono text-muted-foreground">{i.quantity} × ${i.unit_price.toFixed(2)}</span></div>
+                  <div key={i.product_id} className="flex items-center gap-3 text-sm"><img src={i.image || undefined} alt="" className="h-9 w-9 rounded border border-border object-cover" /><span className="flex-1 truncate">{i.name}</span><span className="font-mono text-muted-foreground">{i.quantity} × ${i.unit_price.toFixed(2)}</span></div>
                 ))}
-                {o.notes && <p className="pt-1 text-xs text-muted-foreground"><span className="font-semibold text-foreground">Notes:</span> {o.notes}</p>}
+                {o.notes && <p className="pt-1 text-xs text-muted-foreground"><span className="font-semibold text-foreground">{tr("orders.notes")}:</span> {o.notes}</p>}
               </div>
 
               <div className="flex flex-wrap gap-2">
                 {o.status === "Pending" && (
                   <>
-                    <Button size="sm" onClick={() => update(o.id, "Processing")} data-testid={`accept-order-${o.id}`}><Check className="mr-1 h-4 w-4" /> Accept</Button>
-                    <Button size="sm" variant="outline" className="text-rose-500 hover:bg-rose-500/10" onClick={() => update(o.id, "Cancelled")} data-testid={`reject-order-${o.id}`}><X className="mr-1 h-4 w-4" /> Reject</Button>
+                    <Button size="sm" onClick={() => update(o.id, "Processing")} data-testid={`accept-order-${o.id}`}><Check className="mr-1 h-4 w-4" /> {tr("orders.accept")}</Button>
+                    <Button size="sm" variant="outline" className="text-rose-500 hover:bg-rose-500/10" onClick={() => update(o.id, "Cancelled")} data-testid={`reject-order-${o.id}`}><X className="mr-1 h-4 w-4" /> {tr("orders.reject")}</Button>
                   </>
                 )}
                 {NEXT[o.status] && o.status !== "Pending" && (
-                  <Button size="sm" onClick={() => update(o.id, NEXT[o.status])} data-testid={`advance-order-${o.id}`}><Truck className="mr-1 h-4 w-4" /> Mark {NEXT[o.status]}</Button>
+                  <Button size="sm" onClick={() => update(o.id, NEXT[o.status])} data-testid={`advance-order-${o.id}`}><Truck className="mr-1 h-4 w-4" /> {tr("orders.markAs")} {tr(`status.${NEXT[o.status]}`)}</Button>
                 )}
-                {o.status === "Delivered" && <span className="flex items-center gap-1.5 text-sm font-medium text-emerald-500"><Package className="h-4 w-4" /> Fulfilled</span>}
+                {o.status === "Delivered" && <span className="flex items-center gap-1.5 text-sm font-medium text-emerald-500"><Package className="h-4 w-4" /> {tr("orders.fulfilled")}</span>}
               </div>
             </div>
           ))}

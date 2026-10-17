@@ -30,8 +30,8 @@ export default function Cart() {
   const total = lines.reduce((s, l) => s + l.subtotal, 0);
 
   const checkout = async () => {
-    if (!address.trim()) { toast.error("Please enter a delivery address"); return; }
-    for (const l of lines) if (l.quantity < l.moq) { toast.error(`${l.name} is below MOQ (${l.moq})`); return; }
+    if (!address.trim()) { toast.error(t("checkout.enterAddress")); return; }
+    for (const l of lines) if (l.quantity < l.moq) { toast.error(`${l.name} — ${t("checkout.belowMoq")} (${l.moq})`); return; }
     setPlacing(true);
     try {
       const payload = {
@@ -40,7 +40,7 @@ export default function Cart() {
       };
       const { data } = await api.post("/orders", payload);
       clear();
-      toast.success(`${data.orders.length} order(s) placed successfully!`);
+      toast.success(`${data.orders.length} ${t("checkout.orderPlaced")}`);
       navigate("/orders");
     } catch (err) {
       toast.error(formatApiError(err.response?.data?.detail));
@@ -68,7 +68,7 @@ export default function Cart() {
               <div className="min-w-0 flex-1">
                 <p className="font-mono text-[11px] uppercase tracking-wider text-muted-foreground">{l.supplier_name}</p>
                 <h3 className="truncate text-sm font-semibold">{l.name}</h3>
-                <p className="mt-0.5 text-sm text-muted-foreground">${l.unit.toFixed(2)} / unit · MOQ {l.moq}</p>
+                <p className="mt-0.5 text-sm text-muted-foreground">${l.unit.toFixed(2)} {t("catalog.perUnit")} · {t("catalog.moq")} {l.moq}</p>
                 <div className="mt-2 flex items-center gap-2">
                   <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => updateQty(l.product_id, Math.max(1, l.quantity - 10))} data-testid={`cart-minus-${l.product_id}`}><Minus className="h-3.5 w-3.5" /></Button>
                   <Input type="number" value={l.quantity} onChange={(e) => updateQty(l.product_id, Math.max(1, parseInt(e.target.value) || 1))} className="h-8 w-20 text-center" data-testid={`cart-qty-${l.product_id}`} />

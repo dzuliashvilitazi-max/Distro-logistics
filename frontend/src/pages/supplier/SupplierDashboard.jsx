@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
-import { DollarSign, ShoppingBag, Activity, Boxes, AlertTriangle, TrendingUp } from "lucide-react";
+import { useI18n } from "@/context/I18nContext";
+import { DollarSign, Activity, Boxes, AlertTriangle, TrendingUp } from "lucide-react";
 import { AreaChart, Area, XAxis, YAxis, ResponsiveContainer, Tooltip, BarChart, Bar } from "recharts";
 import { cn } from "@/lib/utils";
 
@@ -17,25 +18,26 @@ function MetricCard({ icon: Icon, label, value, accent, testid }) {
 }
 
 export default function SupplierDashboard() {
+  const { t } = useI18n();
   const [a, setA] = useState(null);
   useEffect(() => { api.get("/analytics/supplier").then((r) => setA(r.data)); }, []);
   if (!a) return <div className="h-64 animate-pulse rounded-xl bg-secondary" />;
 
   return (
     <div>
-      <h1 className="mb-6 text-2xl font-bold tracking-tight sm:text-3xl">Supplier Dashboard</h1>
+      <h1 className="mb-6 text-2xl font-bold tracking-tight sm:text-3xl">{t("sup.title")}</h1>
       <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <MetricCard icon={DollarSign} label="Total Revenue" value={`$${a.revenue.toLocaleString()}`} accent="bg-emerald-500/15 text-emerald-500" testid="metric-revenue" />
-        <MetricCard icon={TrendingUp} label="Today's Sales" value={`$${a.daily.toLocaleString()}`} accent="bg-primary/15 text-primary" testid="metric-daily" />
-        <MetricCard icon={Activity} label="Active Orders" value={a.active_orders} accent="bg-indigo-500/15 text-indigo-400" testid="metric-active" />
-        <MetricCard icon={Boxes} label="Products" value={a.product_count} accent="bg-amber-500/15 text-amber-500" testid="metric-products" />
+        <MetricCard icon={DollarSign} label={t("sup.totalRevenue")} value={`$${a.revenue.toLocaleString()}`} accent="bg-emerald-500/15 text-emerald-500" testid="metric-revenue" />
+        <MetricCard icon={TrendingUp} label={t("sup.todaysSales")} value={`$${a.daily.toLocaleString()}`} accent="bg-primary/15 text-primary" testid="metric-daily" />
+        <MetricCard icon={Activity} label={t("sup.activeOrders")} value={a.active_orders} accent="bg-indigo-500/15 text-indigo-400" testid="metric-active" />
+        <MetricCard icon={Boxes} label={t("sup.products")} value={a.product_count} accent="bg-amber-500/15 text-amber-500" testid="metric-products" />
       </div>
 
       <div className="grid gap-6 lg:grid-cols-12">
         <div className="rounded-xl border border-border bg-card p-5 lg:col-span-7">
-          <h3 className="text-lg font-semibold">Sales — Last 7 Days</h3>
-          <div className="mt-4 h-64">
-            <ResponsiveContainer width="100%" height="100%">
+          <h3 className="text-lg font-semibold">{t("sup.salesLast7")}</h3>
+          <div className="mt-4 h-64 min-w-0">
+            <ResponsiveContainer width="100%" height="100%" minWidth={0}>
               <AreaChart data={a.series}>
                 <defs><linearGradient id="g" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="hsl(var(--primary))" stopOpacity={0.4} /><stop offset="95%" stopColor="hsl(var(--primary))" stopOpacity={0} /></linearGradient></defs>
                 <XAxis dataKey="day" stroke="hsl(var(--muted-foreground))" fontSize={11} />
@@ -49,10 +51,10 @@ export default function SupplierDashboard() {
 
         <div className="space-y-6 lg:col-span-5">
           <div className="rounded-xl border border-border bg-card p-5">
-            <h3 className="text-lg font-semibold">Popular Items</h3>
-            <div className="mt-4 h-48">
-              {a.popular.length === 0 ? <p className="py-10 text-center text-sm text-muted-foreground">No sales yet</p> : (
-                <ResponsiveContainer width="100%" height="100%">
+            <h3 className="text-lg font-semibold">{t("sup.popularItems")}</h3>
+            <div className="mt-4 h-48 min-w-0">
+              {a.popular.length === 0 ? <p className="py-10 text-center text-sm text-muted-foreground">{t("sup.noSalesYet")}</p> : (
+                <ResponsiveContainer width="100%" height="100%" minWidth={0}>
                   <BarChart data={a.popular} layout="vertical" margin={{ left: 0 }}>
                     <XAxis type="number" hide /><YAxis type="category" dataKey="name" width={0} hide />
                     <Tooltip contentStyle={{ background: "hsl(var(--popover))", border: "1px solid hsl(var(--border))", borderRadius: 8 }} />
@@ -72,10 +74,10 @@ export default function SupplierDashboard() {
 
       {a.low_stock.length > 0 && (
         <div className="mt-6 rounded-xl border border-amber-500/30 bg-amber-500/5 p-5" data-testid="low-stock-alert">
-          <h3 className="flex items-center gap-2 text-lg font-semibold text-amber-500"><AlertTriangle className="h-5 w-5" /> Low Stock Alerts</h3>
+          <h3 className="flex items-center gap-2 text-lg font-semibold text-amber-500"><AlertTriangle className="h-5 w-5" /> {t("sup.lowStockAlerts")}</h3>
           <div className="mt-3 grid gap-2 sm:grid-cols-2">
             {a.low_stock.map((p) => (
-              <div key={p.id} className="flex items-center justify-between rounded-lg border border-border bg-card px-3 py-2 text-sm"><span className="truncate">{p.name}</span><span className="font-mono font-bold text-amber-500">{p.stock} left</span></div>
+              <div key={p.id} className="flex items-center justify-between rounded-lg border border-border bg-card px-3 py-2 text-sm"><span className="truncate">{p.name}</span><span className="font-mono font-bold text-amber-500">{p.stock} {t("sup.left")}</span></div>
             ))}
           </div>
         </div>

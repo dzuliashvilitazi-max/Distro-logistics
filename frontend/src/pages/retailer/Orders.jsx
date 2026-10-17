@@ -11,8 +11,9 @@ import { cn } from "@/lib/utils";
 const STEPS = ["Pending", "Processing", "In Transit", "Delivered"];
 
 export function OrderTimeline({ order }) {
+  const { t } = useI18n();
   if (order.status === "Cancelled")
-    return <div className="flex items-center gap-2 rounded-lg bg-rose-500/10 px-3 py-2 text-sm font-medium text-rose-500"><XCircle className="h-4 w-4" /> Order cancelled</div>;
+    return <div className="flex items-center gap-2 rounded-lg bg-rose-500/10 px-3 py-2 text-sm font-medium text-rose-500"><XCircle className="h-4 w-4" /> {t("status.Cancelled")}</div>;
   const current = STEPS.indexOf(order.status);
   return (
     <div className="flex items-center">
@@ -22,7 +23,7 @@ export function OrderTimeline({ order }) {
             <div className={cn("flex h-8 w-8 items-center justify-center rounded-full border-2", i <= current ? "border-primary bg-primary text-primary-foreground" : "border-border bg-card text-muted-foreground")}>
               {i < current ? <CheckCircle2 className="h-4 w-4" /> : i === 0 ? <Clock className="h-4 w-4" /> : i === 2 ? <Truck className="h-4 w-4" /> : <Package className="h-4 w-4" />}
             </div>
-            <span className={cn("mt-1 whitespace-nowrap text-[10px] font-semibold", i <= current ? "text-foreground" : "text-muted-foreground")}>{s}</span>
+            <span className={cn("mt-1 whitespace-nowrap text-[10px] font-semibold", i <= current ? "text-foreground" : "text-muted-foreground")}>{t(`status.${s}`)}</span>
           </div>
           {i < STEPS.length - 1 && <div className={cn("mx-1 h-0.5 flex-1", i < current ? "bg-primary" : "bg-border")} />}
         </div>
@@ -37,10 +38,10 @@ export default function Orders() {
   const [expanded, setExpanded] = useState(null);
 
   const load = () => api.get("/orders").then((r) => setOrders(r.data));
-  useEffect(() => { load(); const t = setInterval(load, 7000); return () => clearInterval(t); }, []);
+  useEffect(() => { load(); const iv = setInterval(load, 7000); return () => clearInterval(iv); }, []);
 
   const cancel = async (id) => {
-    try { await api.put(`/orders/${id}/status`, { status: "Cancelled" }); toast.success("Order cancelled"); load(); }
+    try { await api.put(`/orders/${id}/status`, { status: "Cancelled" }); toast.success(t("orders.orderCancelled")); load(); }
     catch (e) { toast.error(formatApiError(e.response?.data?.detail)); }
   };
 
@@ -62,7 +63,7 @@ export default function Orders() {
                 </div>
                 <p className="mt-1 text-sm text-muted-foreground">{o.supplier_name} · {new Date(o.created_at).toLocaleDateString()}</p>
               </div>
-              <div className="text-right"><p className="text-xl font-extrabold">${o.total.toFixed(2)}</p><p className="font-mono text-[11px] text-muted-foreground">{o.items.length} item(s)</p></div>
+              <div className="text-right"><p className="text-xl font-extrabold">${o.total.toFixed(2)}</p><p className="font-mono text-[11px] text-muted-foreground">{o.items.length} {t("orders.itemsCount")}</p></div>
             </div>
 
             <div className="my-5"><OrderTimeline order={o} /></div>

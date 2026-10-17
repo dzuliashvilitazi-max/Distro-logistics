@@ -1,4 +1,5 @@
 import { cn } from "@/lib/utils";
+import { useI18n } from "@/context/I18nContext";
 
 const MAP = {
   Pending: "bg-amber-500/10 text-amber-500 border-amber-500/30",
@@ -12,12 +13,13 @@ const MAP = {
 };
 
 export function StatusBadge({ status, testid }) {
+  const { t } = useI18n();
   return (
     <span
       data-testid={testid || `status-badge-${status}`}
-      className={cn("inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold tracking-wide capitalize", MAP[status] || "bg-muted text-muted-foreground border-border")}
+      className={cn("inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold tracking-wide", MAP[status] || "bg-muted text-muted-foreground border-border")}
     >
-      {status}
+      {t(`status.${status}`)}
     </span>
   );
 }
