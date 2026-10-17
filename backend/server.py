@@ -260,6 +260,8 @@ async def list_orders(user: dict = Depends(get_current_user)):
     else:
         q = {}
     docs = await db.orders.find(q, {"_id": 0}).sort("created_at", -1).to_list(500)
+    for d in docs:
+        d.setdefault("payment_method", "cash")
     return docs
 
 VALID_STATUS = ["Pending", "Processing", "In Transit", "Delivered", "Cancelled"]

@@ -116,6 +116,7 @@ async def seed_data(db, hash_password):
                 price = t["price"]
         oid = str(uuid.uuid4())
         status = statuses[n]
+        payment = ["cash", "card", "consignment"][n % 3]
         tl = [{"status": "Pending", "at": iso(10 - n)}]
         for st in ["Processing", "In Transit", "Delivered"]:
             if ["Pending", "Processing", "In Transit", "Delivered"].index(st) <= ["Pending", "Processing", "In Transit", "Delivered", "Cancelled"].index(status) if status != "Cancelled" else False:
@@ -128,7 +129,7 @@ async def seed_data(db, hash_password):
                        "supplier_id": prod["supplier_id"], "quantity": qty, "unit_price": price}],
             "total": round(price * qty, 2), "status": status,
             "delivery_address": ret["address"], "notes": "Deliver to rear loading dock.",
-            "delivery_window": "9am - 12pm", "timeline": tl,
+            "delivery_window": "9am - 12pm", "payment_method": payment, "timeline": tl,
             "created_at": iso(10 - n), "updated_at": iso(8 - n),
         })
 
