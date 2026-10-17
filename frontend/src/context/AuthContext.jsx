@@ -30,8 +30,18 @@ export function AuthProvider({ children }) {
 
   const register = async (payload) => {
     const { data } = await api.post("/auth/register", payload);
+    if (data.token) { applyAuth(data); return { user: data.user }; }
+    return data; // { verification_required, email }
+  };
+
+  const verifyOtp = async (email, code) => {
+    const { data } = await api.post("/auth/verify-otp", { email, code });
     applyAuth(data);
     return data.user;
+  };
+
+  const resendOtp = async (email) => {
+    await api.post("/auth/resend-otp", { email });
   };
 
   const logout = () => {
@@ -45,7 +55,7 @@ export function AuthProvider({ children }) {
   };
 
   return (
-    <AuthContext.Provider value={{ user, loading, login, register, logout, refreshUser, setUser }}>
+    <AuthContext.Provider value={{ user, loading, login, register, verifyOtp, resendOtp, logout, refreshUser, setUser }}>
       {children}
     </AuthContext.Provider>
   );

@@ -143,6 +143,8 @@ const en = {
   "auth.agreePrefix": "I agree to the ", "auth.terms": "Terms of Service", "auth.and": " and ", "auth.privacy": "Privacy Policy",
   "auth.mustAgree": "You must accept the Terms of Service and Privacy Policy to create an account.",
   "legal.backHome": "Back to home", "legal.lastUpdated": "Last updated: June 2026",
+  "auth.phone": "Phone number", "auth.category": "Business Category",
+  "verify.title": "Verify your email", "verify.sentTo": "Verification email sent to", "verify.instruction": "Please enter the 6-digit code to activate your account.", "verify.verifyBtn": "Verify & Continue", "verify.resend": "Resend code", "verify.resent": "A new code has been sent.", "verify.success": "Email verified! Welcome aboard.", "verify.notVerified": "Please verify your email first — we've sent you a new code.",
 };
 
 const ka = {
@@ -274,6 +276,8 @@ const ka = {
   "auth.agreePrefix": "ვეთანხმები ", "auth.terms": "მომსახურების პირობებს", "auth.and": " და ", "auth.privacy": "კონფიდენციალურობის პოლიტიკას",
   "auth.mustAgree": "ანგარიშის შესაქმნელად უნდა დაეთანხმოთ მომსახურების პირობებსა და კონფიდენციალურობის პოლიტიკას.",
   "legal.backHome": "მთავარ გვერდზე დაბრუნება", "legal.lastUpdated": "განახლდა: ივნისი 2026",
+  "auth.phone": "ტელეფონის ნომერი", "auth.category": "ბიზნეს კატეგორია",
+  "verify.title": "დაადასტურეთ ელფოსტა", "verify.sentTo": "დადასტურების წერილი გაიგზავნა მისამართზე", "verify.instruction": "ანგარიშის გასააქტიურებლად შეიყვანეთ 6-ნიშნა კოდი.", "verify.verifyBtn": "დადასტურება და გაგრძელება", "verify.resend": "კოდის ხელახლა გაგზავნა", "verify.resent": "ახალი კოდი გაიგზავნა.", "verify.success": "ელფოსტა დადასტურდა! კეთილი იყოს თქვენი მობრძანება.", "verify.notVerified": "ჯერ დაადასტურეთ ელფოსტა — გამოგიგზავნეთ ახალი კოდი.",
 };
 
 const ru = {
@@ -405,6 +409,8 @@ const ru = {
   "auth.agreePrefix": "Я принимаю ", "auth.terms": "Условия использования", "auth.and": " и ", "auth.privacy": "Политику конфиденциальности",
   "auth.mustAgree": "Чтобы создать аккаунт, необходимо принять Условия использования и Политику конфиденциальности.",
   "legal.backHome": "На главную", "legal.lastUpdated": "Обновлено: июнь 2026",
+  "auth.phone": "Номер телефона", "auth.category": "Категория бизнеса",
+  "verify.title": "Подтвердите эл. почту", "verify.sentTo": "Письмо для подтверждения отправлено на", "verify.instruction": "Введите 6-значный код, чтобы активировать аккаунт.", "verify.verifyBtn": "Подтвердить и продолжить", "verify.resend": "Отправить код снова", "verify.resent": "Новый код отправлен.", "verify.success": "Эл. почта подтверждена! Добро пожаловать.", "verify.notVerified": "Сначала подтвердите эл. почту — мы отправили новый код.",
 };
 
 export const translations = { en, ka, ru };

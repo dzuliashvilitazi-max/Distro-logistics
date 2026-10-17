@@ -19,9 +19,11 @@ from pydantic import BaseModel, Field, EmailStr
 from seed import seed_data
 import io
 import secrets
+import hashlib
+import random
 from fastapi import Header, BackgroundTasks
 from fastapi.responses import StreamingResponse
-from email_service import try_send_email, invoice_email_html, reminder_email_html
+from email_service import try_send_email, invoice_email_html, reminder_email_html, otp_email_html
 from invoices import build_invoice_pdf
 from payments import validate_card, gen_token, simulate_hold, simulate_charge, CardError
 
@@ -90,6 +92,8 @@ class RegisterIn(BaseModel):
     address: Optional[str] = ""
     city: Optional[str] = ""
     identification_number: str  # Tax ID / Personal ID (mandatory)
+    phone: Optional[str] = ""
+    category: Optional[str] = ""  # supplier business/product category
     establishment_type: Optional[str] = ""  # retailer only
     # retailer card (store masked only)
     card_name: Optional[str] = ""
@@ -103,6 +107,13 @@ class RegisterIn(BaseModel):
 class LoginIn(BaseModel):
     email: EmailStr
     password: str
+
+class VerifyOtpIn(BaseModel):
+    email: EmailStr
+    code: str
+
+class ResendIn(BaseModel):
+    email: EmailStr
 
 class TierPrice(BaseModel):
     min_qty: int
@@ -150,6 +161,7 @@ class ProfileIn(BaseModel):
     city: Optional[str] = None
     identification_number: Optional[str] = None
     establishment_type: Optional[str] = None
+    category: Optional[str] = None
     card_name: Optional[str] = None
     card_number: Optional[str] = None
     card_expiry: Optional[str] = None
@@ -205,11 +217,47 @@ def clean(doc):
 
 
 # ---------- auth ----------
+log = logging.getLogger("distro.auth")
+
+DISPOSABLE_DOMAINS = {
+    "mailinator.com", "yopmail.com", "guerrillamail.com", "10minutemail.com", "tempmail.com",
+    "temp-mail.org", "trashmail.com", "getnada.com", "dispostable.com", "sharklasers.com",
+    "fakeinbox.com", "maildrop.cc", "throwawaymail.com", "mailnesia.com", "mohmal.com",
+    "emailondeck.com", "spam4.me", "guerrillamailblock.com", "grr.la", "tmpmail.org",
+}
+
+
+def is_disposable_email(email: str) -> bool:
+    return email.rsplit("@", 1)[-1].lower() in DISPOSABLE_DOMAINS
+
+
+def gen_otp() -> str:
+    return f"{random.randint(0, 999999):06d}"
+
+
+def hash_otp(code: str) -> str:
+    return hashlib.sha256((code.strip() + os.environ.get("JWT_SECRET", "distro")).encode()).hexdigest()
+
+
+async def issue_otp(email: str, name: str) -> None:
+    code = gen_otp()
+    await db.email_otps.update_one({"email": email}, {"$set": {
+        "email": email, "code_hash": hash_otp(code),
+        "expires_at": (datetime.now(timezone.utc) + timedelta(minutes=10)).isoformat(),
+        "attempts": 0, "last_sent": now_iso(),
+    }}, upsert=True)
+    log.info(f"[OTP] Verification code for {email}: {code}")
+    await try_send_email(to=email, subject="Your Distro Logistics verification code",
+                         html=otp_email_html(code, name))
+
+
 @api.post("/auth/register")
 async def register(body: RegisterIn, request: Request):
     email = body.email.lower()
     if body.role not in ("retailer", "supplier"):
         raise HTTPException(400, "Invalid role")
+    if is_disposable_email(email):
+        raise HTTPException(400, "Disposable or temporary email addresses are not allowed.")
     if await db.users.find_one({"email": email}):
         raise HTTPException(400, "Email already registered")
     if not (body.identification_number or "").strip():
@@ -224,13 +272,14 @@ async def register(body: RegisterIn, request: Request):
     user = {
         "id": uid, "email": email, "password_hash": hash_password(body.password),
         "name": body.name, "role": body.role, "business_name": body.business_name or body.name,
-        "address": body.address or "", "phone": "", "city": body.city or "",
+        "address": body.address or "", "phone": body.phone or "", "city": body.city or "",
         "identification_number": body.identification_number.strip(),
-        "establishment_type": body.establishment_type or "",
+        "establishment_type": body.establishment_type or "", "category": body.category or "",
         "card_name": body.card_name or "", "card_last4": mask_card(body.card_number),
         "card_expiry": body.card_expiry or "",
         "bank_name": body.bank_name or "", "iban": body.iban or "",
         "status": "pending" if body.role == "supplier" else "active",
+        "email_verified": False,
         "terms_accepted": True, "terms_accepted_at": accepted_at,
         "terms_accepted_ip": client_ip, "terms_version": terms_version,
         "created_at": now_iso(),
@@ -241,20 +290,63 @@ async def register(body: RegisterIn, request: Request):
         "terms_version": terms_version, "accepted_at": accepted_at, "ip": client_ip,
         "user_agent": request.headers.get("user-agent", ""),
     })
-    if body.role == "supplier":
-        admins = await db.users.find({"role": "admin"}).to_list(10)
-        for a in admins:
+    await issue_otp(email, body.name)
+    return {"verification_required": True, "email": email}
+
+
+@api.post("/auth/verify-otp")
+async def verify_otp(body: VerifyOtpIn):
+    email = body.email.lower()
+    rec = await db.email_otps.find_one({"email": email})
+    user = await db.users.find_one({"email": email})
+    if not rec or not user:
+        raise HTTPException(400, "No pending verification for this email")
+    if datetime.fromisoformat(rec["expires_at"]) < datetime.now(timezone.utc):
+        raise HTTPException(400, "Code expired. Please request a new one.")
+    if rec.get("attempts", 0) >= 5:
+        raise HTTPException(429, "Too many attempts. Please request a new code.")
+    if not secrets.compare_digest(rec["code_hash"], hash_otp(body.code)):
+        await db.email_otps.update_one({"email": email}, {"$inc": {"attempts": 1}})
+        raise HTTPException(400, "Invalid verification code")
+    await db.users.update_one({"id": user["id"]}, {"$set": {"email_verified": True}})
+    await db.email_otps.delete_one({"email": email})
+    if user["role"] == "supplier":
+        for a in await db.users.find({"role": "admin"}).to_list(10):
             await notify(a["id"], f"New supplier '{user['business_name']}' awaiting approval", "approval")
-    token = create_token(uid)
-    return {"token": token, "user": clean({**user, "password_hash": None})}
+    token = create_token(user["id"])
+    u = clean(user)
+    u.pop("password_hash", None)
+    u["email_verified"] = True
+    return {"token": token, "user": u}
+
+
+@api.post("/auth/resend-otp")
+async def resend_otp(body: ResendIn):
+    email = body.email.lower()
+    user = await db.users.find_one({"email": email})
+    if not user:
+        raise HTTPException(404, "Email not found")
+    if user.get("email_verified"):
+        raise HTTPException(400, "Email already verified")
+    rec = await db.email_otps.find_one({"email": email})
+    if rec and rec.get("last_sent"):
+        if (datetime.now(timezone.utc) - datetime.fromisoformat(rec["last_sent"])).total_seconds() < 45:
+            raise HTTPException(429, "Please wait a moment before requesting another code.")
+    await issue_otp(email, user.get("name", ""))
+    return {"sent": True, "email": email}
+
 
 @api.post("/auth/login")
 async def login(body: LoginIn):
     user = await db.users.find_one({"email": body.email.lower()})
     if not user or not verify_password(body.password, user["password_hash"]):
         raise HTTPException(401, "Invalid email or password")
+    if user.get("email_verified") is False:
+        await issue_otp(user["email"], user.get("name", ""))
+        raise HTTPException(403, "EMAIL_NOT_VERIFIED")
     token = create_token(user["id"])
-    user = clean(user); user.pop("password_hash", None)
+    user = clean(user)
+    user.pop("password_hash", None)
     return {"token": token, "user": user}
 
 @api.get("/auth/me")
@@ -911,10 +1003,13 @@ app.add_middleware(CORSMiddleware, allow_credentials=False, allow_origins=["*"],
 @app.on_event("startup")
 async def startup():
     await db.users.create_index("email", unique=True)
+    await db.email_otps.create_index("email", unique=True)
     await db.products.create_index("supplier_id")
     await db.orders.create_index("retailer_id")
     await db.orders.create_index("supplier_id")
     await seed_data(db, hash_password)
+    # existing/seeded accounts are treated as already verified
+    await db.users.update_many({"email_verified": {"$exists": False}}, {"$set": {"email_verified": True}})
     await get_settings()
     if await db.categories.count_documents({}) == 0:
         for c in ["Beverages", "Groceries", "Snacks & Sweets", "Dry Goods", "Household Chemicals", "Packaging", "Hygiene"]:

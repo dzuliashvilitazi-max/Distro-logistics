@@ -14,7 +14,7 @@ import { toast } from "sonner";
 export default function Profile() {
   const { user, refreshUser } = useAuth();
   const { t } = useI18n();
-  const [form, setForm] = useState({ name: user.name || "", business_name: user.business_name || "", address: user.address || "", phone: user.phone || "", city: user.city || "", identification_number: user.identification_number || "", card_name: user.card_name || "", card_number: "", card_expiry: user.card_expiry || "", bank_name: user.bank_name || "", iban: user.iban || "" });
+  const [form, setForm] = useState({ name: user.name || "", business_name: user.business_name || "", address: user.address || "", phone: user.phone || "", city: user.city || "", category: user.category || "", identification_number: user.identification_number || "", card_name: user.card_name || "", card_number: "", card_expiry: user.card_expiry || "", bank_name: user.bank_name || "", iban: user.iban || "" });
   const [saving, setSaving] = useState(false);
 
   const save = async (e) => {
@@ -51,6 +51,7 @@ export default function Profile() {
           {user.role === "supplier" && (
             <>
               <CardForm note={t("card.autoDebitNote")} />
+              <div><Label htmlFor="cat">{t("auth.category")}</Label><Input id="cat" value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })} className="mt-1.5" data-testid="profile-category" /></div>
               <div className="rounded-lg border border-border p-3">
                 <p className="mb-2 text-sm font-semibold">{t("prof.banking")}</p>
                 <div className="space-y-2">

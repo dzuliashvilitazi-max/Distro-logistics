@@ -163,6 +163,19 @@ def _rows(inv: dict) -> str:
     return out
 
 
+def otp_email_html(code: str, name: str = "") -> str:
+    inner = (
+        f'<p style="font-size:15px">Hello{(" " + escape(name)) if name else ""},</p>'
+        f'<p>Use the verification code below to activate your Distro Logistics account:</p>'
+        f'<p style="margin:24px 0;text-align:center">'
+        f'<span style="display:inline-block;background:#f0fdfa;border:1px solid #99f6e4;border-radius:10px;'
+        f'padding:14px 28px;font-size:30px;font-weight:bold;letter-spacing:8px;color:#0f766e">{escape(code)}</span></p>'
+        f'<p style="font-size:13px;color:#6b7280">This code expires in 10 minutes. If you did not create an account, '
+        f'you can safely ignore this email.</p>'
+    )
+    return _wrap(inner)
+
+
 def invoice_email_html(inv: dict) -> str:
     inner = (
         f'<p style="font-size:15px">Dear {escape(inv.get("supplier_name",""))},</p>'

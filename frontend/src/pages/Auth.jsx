@@ -4,7 +4,7 @@ import { useAuth } from "@/context/AuthContext";
 import { useI18n } from "@/context/I18nContext";
 import { formatApiError } from "@/lib/api";
 import { PublicLangSwitcher } from "@/pages/Landing";
-import { Truck, Store, Warehouse, Loader2, ArrowRight } from "lucide-react";
+import { Truck, Store, Warehouse, Loader2, ArrowRight, Mail } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -19,13 +19,16 @@ const DEMO = [
 
 export default function Auth({ mode }) {
   const isRegister = mode === "register";
-  const { login, register } = useAuth();
+  const { login, register, verifyOtp, resendOtp } = useAuth();
   const { t } = useI18n();
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
   const [role, setRole] = useState("retailer");
   const [agreed, setAgreed] = useState(false);
-  const [form, setForm] = useState({ email: "", password: "", name: "", business_name: "", address: "", city: "", identification_number: "", establishment_type: "grocery", card_name: "", card_number: "", card_expiry: "", bank_name: "", iban: "" });
+  const [verifyEmail, setVerifyEmail] = useState(null);
+  const [code, setCode] = useState("");
+  const [verifying, setVerifying] = useState(false);
+  const [form, setForm] = useState({ email: "", password: "", name: "", business_name: "", address: "", city: "", phone: "", category: "", identification_number: "", establishment_type: "grocery", card_name: "", card_number: "", card_expiry: "", bank_name: "", iban: "" });
 
   const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
 
@@ -34,20 +37,50 @@ export default function Auth({ mode }) {
     if (isRegister && !agreed) { toast.error(t("auth.mustAgree")); return; }
     setLoading(true);
     try {
-      let user;
       if (isRegister) {
-        user = await register({ ...form, role, accept_terms: true });
-        toast.success(role === "supplier" ? t("auth.supplierCreated") : t("auth.welcomeMsg"));
+        const res = await register({ ...form, role, accept_terms: true });
+        if (res.verification_required) {
+          setVerifyEmail(res.email);
+          toast.success(`${t("verify.sentTo")} ${res.email}`);
+        } else {
+          toast.success(role === "supplier" ? t("auth.supplierCreated") : t("auth.welcomeMsg"));
+          navigate("/");
+        }
       } else {
-        user = await login(form.email, form.password);
+        const user = await login(form.email, form.password);
         toast.success(`${t("auth.welcomeBack")}, ${user.business_name}`);
+        navigate("/");
       }
-      navigate("/");
     } catch (err) {
-      toast.error(formatApiError(err.response?.data?.detail) || err.message);
+      const detail = err.response?.data?.detail;
+      if (detail === "EMAIL_NOT_VERIFIED") {
+        setVerifyEmail(form.email);
+        toast.message(t("verify.notVerified"));
+      } else {
+        toast.error(formatApiError(detail) || err.message);
+      }
     } finally {
       setLoading(false);
     }
+  };
+
+  const doVerify = async (e) => {
+    e.preventDefault();
+    setVerifying(true);
+    try {
+      await verifyOtp(verifyEmail, code);
+      toast.success(t("verify.success"));
+      navigate("/");
+    } catch (err) {
+      toast.error(formatApiError(err.response?.data?.detail));
+    } finally {
+      setVerifying(false);
+    }
+  };
+
+  const doResend = async () => {
+    try { await resendOtp(verifyEmail); toast.success(t("verify.resent")); }
+    catch (err) { toast.error(formatApiError(err.response?.data?.detail)); }
   };
 
   const quickLogin = async (d) => {
@@ -60,6 +93,26 @@ export default function Auth({ mode }) {
       toast.error(formatApiError(err.response?.data?.detail));
     } finally { setLoading(false); }
   };
+
+  if (verifyEmail) {
+    return (
+      <div className="grid min-h-screen place-items-center bg-background p-6">
+        <div className="w-full max-w-md text-center" data-testid="verify-screen">
+          <div className="mx-auto mb-5 flex h-16 w-16 items-center justify-center rounded-2xl bg-primary/15"><Mail className="h-8 w-8 text-primary" /></div>
+          <h1 className="text-2xl font-extrabold tracking-tight">{t("verify.title")}</h1>
+          <p className="mt-2 text-sm text-muted-foreground">{t("verify.sentTo")} <span className="font-semibold text-foreground" data-testid="verify-email">{verifyEmail}</span>. {t("verify.instruction")}</p>
+          <form onSubmit={doVerify} className="mt-6 space-y-4">
+            <Input value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 6))} inputMode="numeric" maxLength={6} placeholder="------" className="h-14 text-center text-2xl font-bold tracking-[0.5em]" data-testid="verify-code-input" />
+            <Button type="submit" className="h-11 w-full text-base" disabled={verifying || code.length !== 6} data-testid="verify-submit">
+              {verifying ? <Loader2 className="h-5 w-5 animate-spin" /> : <>{t("verify.verifyBtn")} <ArrowRight className="ml-1.5 h-4 w-4" /></>}
+            </Button>
+          </form>
+          <button onClick={doResend} className="mt-4 text-sm font-semibold text-primary hover:underline" data-testid="verify-resend">{t("verify.resend")}</button>
+          <button onClick={() => { setVerifyEmail(null); setCode(""); }} className="mt-6 block w-full text-xs text-muted-foreground hover:underline" data-testid="verify-back">← {t("auth.signIn")}</button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="grid min-h-screen lg:grid-cols-2">
@@ -100,6 +153,7 @@ export default function Auth({ mode }) {
                 <div><Label htmlFor="name">{t("auth.contactName")}</Label><Input id="name" required value={form.name} onChange={set("name")} className="mt-1.5" data-testid="register-name" /></div>
                 <div><Label htmlFor="business">{t("auth.businessName")}</Label><Input id="business" required value={form.business_name} onChange={set("business_name")} className="mt-1.5" data-testid="register-business" /></div>
                 <div><Label htmlFor="address">{t("auth.businessAddress")}</Label><Input id="address" value={form.address} onChange={set("address")} className="mt-1.5" data-testid="register-address" /></div>
+                <div><Label htmlFor="phone">{t("auth.phone")}</Label><Input id="phone" value={form.phone} onChange={set("phone")} className="mt-1.5" data-testid="register-phone" placeholder="+995 5XX XXX XXX" /></div>
                 <div className="grid grid-cols-2 gap-3">
                   <div><Label htmlFor="city">{t("reg.city")}</Label><Input id="city" value={form.city} onChange={set("city")} className="mt-1.5" data-testid="register-city" placeholder="Tbilisi" /></div>
                   <div><Label htmlFor="idn">{role === "supplier" ? t("reg.idSupplier") : t("reg.identification")}</Label><Input id="idn" required value={form.identification_number} onChange={set("identification_number")} className="mt-1.5" data-testid="register-identification" placeholder="ს/კ" /></div>
@@ -129,6 +183,7 @@ export default function Auth({ mode }) {
                   <div className="rounded-lg border border-border p-3">
                     <p className="mb-2 text-sm font-semibold">{t("reg.bankSection")}</p>
                     <div className="space-y-2">
+                      <Input value={form.category} onChange={set("category")} placeholder={t("auth.category")} data-testid="register-category" />
                       <Input value={form.bank_name} onChange={set("bank_name")} placeholder={t("reg.bankName")} data-testid="register-bank-name" />
                       <Input value={form.iban} onChange={set("iban")} placeholder={t("reg.iban")} data-testid="register-iban" />
                     </div>

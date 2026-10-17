@@ -72,6 +72,7 @@ async def seed_data(db, hash_password):
             "id": sid, "email": s["email"], "password_hash": hash_password("Password@123"),
             "name": s["name"], "role": "supplier", "business_name": s["business_name"],
             "address": s["address"], "phone": "+995-555-0100",
+            "category": ["Beverages", "Dry Goods", "Snacks & Sweets"][SUPPLIERS.index(s) % 3],
             "city": ["Tbilisi", "Batumi", "Kutaisi"][SUPPLIERS.index(s) % 3],
             "identification_number": "20500" + str(SUPPLIERS.index(s) + 1).zfill(4),
             "bank_name": ["TBC Bank", "Bank of Georgia", "Liberty Bank"][SUPPLIERS.index(s) % 3],
