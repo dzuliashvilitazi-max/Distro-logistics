@@ -1,8 +1,8 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api, formatApiError } from "@/lib/api";
 import { useI18n } from "@/context/I18nContext";
 import { CATEGORY_VALUES, categoryKey } from "@/lib/i18n";
-import { Plus, Pencil, Trash2, Boxes } from "lucide-react";
+import { Plus, Pencil, Trash2, Boxes, Camera, ImageIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -21,6 +21,41 @@ export default function Inventory() {
   const [editing, setEditing] = useState(null);
   const [form, setForm] = useState(EMPTY);
   const [deleteId, setDeleteId] = useState(null);
+  const [imgLoading, setImgLoading] = useState(false);
+  const camRef = useRef(null);
+  const galRef = useRef(null);
+
+  const processFile = (file) => new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = reject;
+    reader.onload = (e) => {
+      const img = new Image();
+      img.onload = () => {
+        const max = 900;
+        let { width, height } = img;
+        if (width > max || height > max) { const r = Math.min(max / width, max / height); width = Math.round(width * r); height = Math.round(height * r); }
+        const canvas = document.createElement("canvas");
+        canvas.width = width; canvas.height = height;
+        canvas.getContext("2d").drawImage(img, 0, 0, width, height);
+        resolve(canvas.toDataURL("image/jpeg", 0.75));
+      };
+      img.onerror = reject;
+      img.src = e.target.result;
+    };
+    reader.readAsDataURL(file);
+  });
+
+  const onPickImage = async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    setImgLoading(true);
+    try {
+      const dataUrl = await processFile(file);
+      setForm((f) => ({ ...f, image: dataUrl }));
+    } catch { toast.error(t("inv.nameRequired")); }
+    finally { setImgLoading(false); }
+  };
 
   const load = () => api.get("/auth/me").then((u) => api.get(`/products?supplier_id=${u.data.id}`)).then((r) => setProducts(r.data));
   useEffect(() => { load(); }, []);
@@ -72,7 +107,7 @@ export default function Inventory() {
                 <tr key={p.id} data-testid={`inventory-row-${p.id}`} className="border-b border-border/50 last:border-0">
                   <td className="px-4 py-3"><div className="flex items-center gap-3"><img src={p.image || undefined} alt="" className="h-10 w-10 rounded border border-border object-cover" /><span className="max-w-xs truncate font-medium">{p.name}</span></div></td>
                   <td className="px-4 py-3 text-muted-foreground">{t(categoryKey(p.category))}</td>
-                  <td className="px-4 py-3 font-semibold">${p.price_per_unit.toFixed(2)}</td>
+                  <td className="px-4 py-3 font-semibold">₾{p.price_per_unit.toFixed(2)}</td>
                   <td className="px-4 py-3 font-mono">{p.moq}</td>
                   <td className="px-4 py-3"><Badge className={p.stock < 50 ? "bg-amber-500/15 text-amber-500" : "bg-emerald-500/15 text-emerald-500"}>{p.stock}</Badge></td>
                   <td className="px-4 py-3"><div className="flex justify-end gap-1">
@@ -99,7 +134,25 @@ export default function Inventory() {
               <div><Label>{t("inv.moqUnits")}</Label><Input type="number" value={form.moq} onChange={(e) => setForm({ ...form, moq: e.target.value })} className="mt-1.5" data-testid="product-moq" /></div>
               <div><Label>{t("common.stock")}</Label><Input type="number" value={form.stock} onChange={(e) => setForm({ ...form, stock: e.target.value })} className="mt-1.5" data-testid="product-stock" /></div>
             </div>
-            <div><Label>{t("inv.imageUrl")}</Label><Input value={form.image} onChange={(e) => setForm({ ...form, image: e.target.value })} className="mt-1.5" placeholder="https://..." data-testid="product-image" /></div>
+            <div>
+              <Label>{t("inv.imageLabel")}</Label>
+              <div className="mt-1.5 flex items-start gap-3">
+                <div className="flex h-24 w-24 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-dashed border-border bg-secondary" data-testid="image-preview">
+                  {imgLoading ? <span className="text-[11px] text-muted-foreground">{t("inv.processing")}</span>
+                    : form.image ? <img src={form.image} alt={t("inv.preview")} className="h-full w-full object-cover" data-testid="image-preview-thumb" />
+                    : <ImageIcon className="h-7 w-7 text-muted-foreground" />}
+                </div>
+                <div className="flex flex-1 flex-col gap-2">
+                  <input ref={camRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={onPickImage} data-testid="camera-input" />
+                  <input ref={galRef} type="file" accept="image/*" className="hidden" onChange={onPickImage} data-testid="gallery-input" />
+                  <div className="flex gap-2">
+                    <Button type="button" variant="outline" className="flex-1" onClick={() => camRef.current?.click()} data-testid="take-photo-btn"><Camera className="mr-1.5 h-4 w-4" /> {t("inv.takePhoto")}</Button>
+                    <Button type="button" variant="outline" className="flex-1" onClick={() => galRef.current?.click()} data-testid="choose-gallery-btn"><ImageIcon className="mr-1.5 h-4 w-4" /> {t("inv.chooseGallery")}</Button>
+                  </div>
+                  <Input value={form.image?.startsWith("data:") ? "" : form.image} onChange={(e) => setForm({ ...form, image: e.target.value })} placeholder={t("inv.orPasteUrl")} data-testid="product-image" />
+                </div>
+              </div>
+            </div>
             <div><Label>{t("inv.description")}</Label><Textarea value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} className="mt-1.5" rows={2} data-testid="product-desc" /></div>
             <div>
               <Label>{t("inv.tierPricing")}</Label>

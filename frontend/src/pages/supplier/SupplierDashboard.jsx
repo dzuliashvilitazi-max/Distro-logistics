@@ -27,8 +27,8 @@ export default function SupplierDashboard() {
     <div>
       <h1 className="mb-6 text-2xl font-bold tracking-tight sm:text-3xl">{t("sup.title")}</h1>
       <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <MetricCard icon={DollarSign} label={t("sup.totalRevenue")} value={`$${a.revenue.toLocaleString()}`} accent="bg-emerald-500/15 text-emerald-500" testid="metric-revenue" />
-        <MetricCard icon={TrendingUp} label={t("sup.todaysSales")} value={`$${a.daily.toLocaleString()}`} accent="bg-primary/15 text-primary" testid="metric-daily" />
+        <MetricCard icon={DollarSign} label={t("sup.totalRevenue")} value={`₾${a.revenue.toLocaleString()}`} accent="bg-emerald-500/15 text-emerald-500" testid="metric-revenue" />
+        <MetricCard icon={TrendingUp} label={t("sup.todaysSales")} value={`₾${a.daily.toLocaleString()}`} accent="bg-primary/15 text-primary" testid="metric-daily" />
         <MetricCard icon={Activity} label={t("sup.activeOrders")} value={a.active_orders} accent="bg-indigo-500/15 text-indigo-400" testid="metric-active" />
         <MetricCard icon={Boxes} label={t("sup.products")} value={a.product_count} accent="bg-amber-500/15 text-amber-500" testid="metric-products" />
       </div>

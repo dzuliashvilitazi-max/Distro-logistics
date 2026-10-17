@@ -46,7 +46,7 @@ export default function AdminOrders() {
                   <td className="px-4 py-3 text-muted-foreground">{o.supplier_name}</td>
                   <td className="px-4 py-3"><PaymentBadge method={o.payment_method} /></td>
                   <td className="px-4 py-3"><StatusBadge status={o.status} /></td>
-                  <td className="px-4 py-3 text-right font-bold">${o.total.toFixed(2)}</td>
+                  <td className="px-4 py-3 text-right font-bold">₾{o.total.toFixed(2)}</td>
                 </tr>
               ))}
             </tbody>

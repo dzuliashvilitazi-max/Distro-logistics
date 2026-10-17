@@ -50,12 +50,12 @@ export default function SupplierOrders() {
                   <p className="mt-1 text-sm text-muted-foreground">{tr("orders.from")} <span className="font-medium text-foreground">{o.retailer_name}</span> · {new Date(o.created_at).toLocaleString()}</p>
                   <p className="mt-0.5 text-xs text-muted-foreground">{tr("orders.deliverTo")}: {o.delivery_address} · {o.delivery_window}</p>
                 </div>
-                <p className="text-xl font-extrabold">${o.total.toFixed(2)}</p>
+                <p className="text-xl font-extrabold">₾{o.total.toFixed(2)}</p>
               </div>
 
               <div className="my-3 space-y-1.5 border-y border-border py-3">
                 {o.items.map((i) => (
-                  <div key={i.product_id} className="flex items-center gap-3 text-sm"><img src={i.image || undefined} alt="" className="h-9 w-9 rounded border border-border object-cover" /><span className="flex-1 truncate">{i.name}</span><span className="font-mono text-muted-foreground">{i.quantity} × ${i.unit_price.toFixed(2)}</span></div>
+                  <div key={i.product_id} className="flex items-center gap-3 text-sm"><img src={i.image || undefined} alt="" className="h-9 w-9 rounded border border-border object-cover" /><span className="flex-1 truncate">{i.name}</span><span className="font-mono text-muted-foreground">{i.quantity} × ₾{i.unit_price.toFixed(2)}</span></div>
                 ))}
                 {o.notes && <p className="pt-1 text-xs text-muted-foreground"><span className="font-semibold text-foreground">{tr("orders.notes")}:</span> {o.notes}</p>}
               </div>

@@ -26,10 +26,10 @@ export default function AdminDashboard() {
     <div>
       <h1 className="mb-6 text-2xl font-bold tracking-tight sm:text-3xl">{t("adm.title")}</h1>
       <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <Metric icon={DollarSign} label={t("adm.totalGMV")} value={`$${a.gmv.toLocaleString()}`} accent="bg-emerald-500/15 text-emerald-500" testid="admin-gmv" />
+        <Metric icon={DollarSign} label={t("adm.totalGMV")} value={`₾${a.gmv.toLocaleString()}`} accent="bg-emerald-500/15 text-emerald-500" testid="admin-gmv" />
         <Metric icon={ShoppingBag} label={t("adm.totalOrders")} value={a.total_orders} accent="bg-primary/15 text-primary" testid="admin-orders" />
         <Metric icon={CheckCircle2} label={t("adm.fulfillmentRate")} value={`${a.fulfillment_rate}%`} accent="bg-indigo-500/15 text-indigo-400" testid="admin-fulfillment" />
-        <Metric icon={Percent} label={t("adm.platformFees")} value={`$${a.fee_revenue.toLocaleString()}`} accent="bg-amber-500/15 text-amber-500" testid="admin-fees" />
+        <Metric icon={Percent} label={t("adm.platformFees")} value={`₾${a.fee_revenue.toLocaleString()}`} accent="bg-amber-500/15 text-amber-500" testid="admin-fees" />
       </div>
       <div className="grid gap-4 sm:grid-cols-3">
         <Metric icon={Store} label={t("adm.retailers")} value={a.retailers} accent="bg-blue-500/15 text-blue-400" testid="admin-retailers" />

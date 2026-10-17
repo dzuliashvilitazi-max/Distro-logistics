@@ -63,7 +63,7 @@ export default function Orders() {
                 </div>
                 <p className="mt-1 text-sm text-muted-foreground">{o.supplier_name} · {new Date(o.created_at).toLocaleDateString()}</p>
               </div>
-              <div className="text-right"><p className="text-xl font-extrabold">${o.total.toFixed(2)}</p><p className="font-mono text-[11px] text-muted-foreground">{o.items.length} {t("orders.itemsCount")}</p></div>
+              <div className="text-right"><p className="text-xl font-extrabold">₾{o.total.toFixed(2)}</p><p className="font-mono text-[11px] text-muted-foreground">{o.items.length} {t("orders.itemsCount")}</p></div>
             </div>
 
             <div className="my-5"><OrderTimeline order={o} /></div>
@@ -83,8 +83,8 @@ export default function Orders() {
                   <div key={i.product_id} className="flex items-center gap-3 text-sm">
                     <img src={i.image} alt="" className="h-10 w-10 rounded border border-border object-cover" />
                     <span className="flex-1 truncate">{i.name}</span>
-                    <span className="font-mono text-muted-foreground">{i.quantity} × ${i.unit_price.toFixed(2)}</span>
-                    <span className="w-20 text-right font-semibold">${(i.quantity * i.unit_price).toFixed(2)}</span>
+                    <span className="font-mono text-muted-foreground">{i.quantity} × ₾{i.unit_price.toFixed(2)}</span>
+                    <span className="w-20 text-right font-semibold">₾{(i.quantity * i.unit_price).toFixed(2)}</span>
                   </div>
                 ))}
                 <div className="pt-2 text-sm text-muted-foreground">

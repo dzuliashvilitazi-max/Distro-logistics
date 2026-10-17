@@ -79,7 +79,7 @@ export default function Catalog() {
                 <h3 className="mt-1 line-clamp-2 text-sm font-semibold leading-snug">{p.name}</h3>
                 <div className="mt-3 flex items-end justify-between">
                   <div>
-                    <p className="text-xl font-extrabold">${p.price_per_unit.toFixed(2)}</p>
+                    <p className="text-xl font-extrabold">₾{p.price_per_unit.toFixed(2)}</p>
                     <p className="font-mono text-[11px] text-muted-foreground">{t("catalog.moq")} {p.moq}</p>
                   </div>
                   <span className="flex items-center gap-1 rounded-md bg-primary/10 px-2 py-1 font-mono text-[10px] font-semibold text-primary"><Layers className="h-3 w-3" />{p.tier_pricing?.length || 1} {t("catalog.tiers")}</span>
@@ -126,7 +126,7 @@ function OrderDialog({ product, onClose, onAdd }) {
               {tiers.map((tier) => (
                 <div key={tier.min_qty} className={cn("rounded-md border p-2 text-center", qty >= tier.min_qty ? "border-primary bg-primary/10" : "border-border")}>
                   <p className="font-mono text-[11px] text-muted-foreground">{tier.min_qty}+ {t("common.units")}</p>
-                  <p className="text-sm font-bold">${tier.price.toFixed(2)}</p>
+                  <p className="text-sm font-bold">₾{tier.price.toFixed(2)}</p>
                 </div>
               ))}
             </div>
@@ -144,7 +144,7 @@ function OrderDialog({ product, onClose, onAdd }) {
           </div>
         </div>
         <DialogFooter className="flex-row items-center justify-between gap-3 sm:justify-between">
-          <div><p className="font-mono text-[11px] text-muted-foreground">{t("checkout.orderTotal")}</p><p className="text-2xl font-extrabold" data-testid="order-total">${(unit * qty).toFixed(2)}</p></div>
+          <div><p className="font-mono text-[11px] text-muted-foreground">{t("checkout.orderTotal")}</p><p className="text-2xl font-extrabold" data-testid="order-total">₾{(unit * qty).toFixed(2)}</p></div>
           <Button size="lg" disabled={belowMoq} onClick={() => onAdd(product, qty)} data-testid="confirm-add-cart">{t("catalog.addToCart")}</Button>
         </DialogFooter>
       </DialogContent>
