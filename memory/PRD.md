@@ -51,6 +51,11 @@ B2B Distribution & Logistics web app. Three roles — Supplier/Distributor, Reta
 - Registration requires a mandatory "I agree to the Terms of Service and Privacy Policy" checkbox with clickable links; Create account is disabled until checked (backend also rejects with 400 if `accept_terms` is not true).
 - Consent audit recorded at signup: `terms_accepted`, `terms_accepted_at` (UTC), `terms_accepted_ip` (first X-Forwarded-For hop), `terms_version` on the user, plus an immutable record in the `terms_acceptances` collection (user_id, email, role, version, timestamp, ip, user_agent).
 
+### Profile persistence fix + Email verification OTP (2026-06) — tested 11/11 + e2e
+- **Persistence bug fixed**: `phone` was hard-coded empty on register and `category` didn't exist. Added `phone` + `category` to RegisterIn/register and `category` to ProfileIn; all registration fields (business_name, tax ID, phone, address, city, category, contact name, bank/IBAN, establishment, role) now persist and are editable in Profile without data loss.
+- **Mandatory email verification (6-digit OTP)**: register creates `email_verified=false`, issues a hashed OTP (10-min expiry, `db.email_otps`), emails it via Resend and mirrors it to backend logs for testing; register returns `{verification_required,email}` (no token). Login is gated with 403 `EMAIL_NOT_VERIFIED` (re-issues OTP). New endpoints: `/api/auth/verify-otp`, `/api/auth/resend-otp` (45s throttle, 5-attempt lockout). Disposable/fake email domains rejected at register.
+- Post-signup verification screen (OTP entry + resend); on success user lands in dashboard with saved details. Seeded/admin accounts backfilled `email_verified=true` on startup so demos log in directly.
+
 ## Endpoints (billing)
 - GET /api/invoices (supplier own / admin all) · GET /api/invoices/{id}/pdf
 - PUT /api/admin/invoices/{id}/paid · POST /api/admin/invoices/{id}/remind · POST /api/admin/invoices/generate
