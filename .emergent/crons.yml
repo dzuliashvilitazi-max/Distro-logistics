@@ -1,0 +1,17 @@
+crons:
+  - name: monthly-invoices
+    description: "Generates supplier commission invoices on the 1st for the prior month"
+    # 05:00 UTC on the 1st = 09:00 Asia/Tbilisi (UTC+4); day-of-month restricts to UTC.
+    cron: "0 5 1 * *"
+    endpoint: "{{BASE_URL}}/api/cron/generate-invoices"
+    method: POST
+    # Cron endpoints must ack 2xx immediately; enqueue/background the actual work.
+    enabled: true
+  - name: billing-check
+    description: "Daily: marks overdue invoices, freezes suppliers, emails overdue reminders"
+    cron: "0 6 * * *"
+    timezone: "Asia/Tbilisi"
+    endpoint: "{{BASE_URL}}/api/cron/billing-check"
+    method: POST
+    # Cron endpoints must ack 2xx immediately; enqueue/background the actual work.
+    enabled: true

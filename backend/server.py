@@ -17,6 +17,12 @@ from motor.motor_asyncio import AsyncIOMotorClient
 from pydantic import BaseModel, Field, EmailStr
 
 from seed import seed_data
+import io
+import secrets
+from fastapi import Header, BackgroundTasks
+from fastapi.responses import StreamingResponse
+from email_service import try_send_email, invoice_email_html, reminder_email_html
+from invoices import build_invoice_pdf
 
 mongo_url = os.environ['MONGO_URL']
 client = AsyncIOMotorClient(mongo_url)
@@ -152,6 +158,9 @@ class SettingsIn(BaseModel):
     fee_type: str = "percent"       # percent | fixed
     fee_value: float = 5.0          # percent (%) or fixed amount (₾)
     fee_payer: str = "supplier"     # supplier | retailer | split
+    issuer_name: Optional[str] = None
+    issuer_tax_id: Optional[str] = None
+    issuer_iban: Optional[str] = None
 
 class CategoryIn(BaseModel):
     name: str
@@ -166,6 +175,14 @@ async def get_settings() -> dict:
     if not s:
         s = {"id": "platform", "fee_type": "percent", "fee_value": 5.0, "fee_payer": "supplier"}
         await db.settings.insert_one(dict(s))
+    changed = {}
+    for k, v in {"issuer_name": "Distro Logistics LLC", "issuer_tax_id": "400123456",
+                 "issuer_iban": "GE00DL0000000000001234"}.items():
+        if not s.get(k):
+            s[k] = v
+            changed[k] = v
+    if changed:
+        await db.settings.update_one({"id": "platform"}, {"$set": changed})
     return s
 
 def compute_fee(total: float, s: dict) -> float:
@@ -282,6 +299,10 @@ async def delete_product(pid: str, user: dict = Depends(require_role("supplier")
 @api.post("/orders")
 async def create_order(body: OrderIn, user: dict = Depends(require_role("retailer"))):
     supplier_ids = {i.supplier_id for i in body.items}
+    frozen = await db.users.find({"id": {"$in": list(supplier_ids)}, "billing_frozen": True}, {"_id": 0}).to_list(100)
+    if frozen:
+        names = ", ".join(f.get("business_name", "supplier") for f in frozen)
+        raise HTTPException(403, f"Cannot place order: {names} is temporarily frozen due to overdue commission billing.")
     settings = await get_settings()
     created = []
     for sid in supplier_ids:
@@ -340,6 +361,8 @@ async def update_order_status(oid: str, body: StatusUpdate, user: dict = Depends
     if user["role"] == "supplier":
         if order["supplier_id"] != user["id"]:
             raise HTTPException(404, "Order not found")
+        if user.get("billing_frozen") and body.status != "Cancelled":
+            raise HTTPException(403, "Account frozen due to an overdue commission invoice. Settle the outstanding invoice to resume accepting orders.")
     elif user["role"] == "retailer":
         if order["retailer_id"] != user["id"] or body.status != "Cancelled":
             raise HTTPException(403, "Not allowed")
@@ -347,7 +370,11 @@ async def update_order_status(oid: str, body: StatusUpdate, user: dict = Depends
         raise HTTPException(403, "Not allowed")
     tl = order.get("timeline", [])
     tl.append({"status": body.status, "at": now_iso()})
-    await db.orders.update_one({"id": oid}, {"$set": {"status": body.status, "updated_at": now_iso(), "timeline": tl}})
+    set_fields = {"status": body.status, "updated_at": now_iso(), "timeline": tl}
+    if body.status == "Delivered" and not order.get("delivered_at"):
+        set_fields["delivered_at"] = now_iso()
+        set_fields["commission_amount"] = order.get("service_fee", round(order.get("total", 0) * 0.05, 2))
+    await db.orders.update_one({"id": oid}, {"$set": set_fields})
     # notify the other party
     target = order["retailer_id"] if user["role"] != "retailer" else order["supplier_id"]
     await notify(target, f"Order {order['order_no']} is now {body.status}", "status")
@@ -481,8 +508,12 @@ async def write_settings(body: SettingsIn, user: dict = Depends(require_role("ad
         raise HTTPException(400, "Invalid fee type")
     if body.fee_payer not in ("supplier", "retailer", "split"):
         raise HTTPException(400, "Invalid fee payer")
-    await db.settings.update_one({"id": "platform"},
-        {"$set": {"fee_type": body.fee_type, "fee_value": body.fee_value, "fee_payer": body.fee_payer}}, upsert=True)
+    upd = {"fee_type": body.fee_type, "fee_value": body.fee_value, "fee_payer": body.fee_payer}
+    for k in ("issuer_name", "issuer_tax_id", "issuer_iban"):
+        v = getattr(body, k)
+        if v is not None:
+            upd[k] = v
+    await db.settings.update_one({"id": "platform"}, {"$set": upd}, upsert=True)
     return await get_settings()
 
 
@@ -502,6 +533,236 @@ async def add_category(body: CategoryIn, user: dict = Depends(get_current_user))
     if not await db.categories.find_one({"name": name}):
         await db.categories.insert_one({"id": str(uuid.uuid4()), "name": name})
     return await list_categories()
+
+
+# ---------- commission billing & financials ----------
+ISSUER_DEFAULTS = {"issuer_name": "Distro Logistics LLC", "issuer_tax_id": "400123456",
+                   "issuer_iban": "GE00DL0000000000001234"}
+
+
+def _month_bounds(year, month):
+    start = datetime(year, month, 1, tzinfo=timezone.utc)
+    nxt = datetime(year + 1, 1, 1, tzinfo=timezone.utc) if month == 12 else datetime(year, month + 1, 1, tzinfo=timezone.utc)
+    return start, nxt, start.strftime("%B %Y"), f"{year:04d}-{month:02d}"
+
+
+def _prev_month(dt):
+    return (dt.year - 1, 12) if dt.month == 1 else (dt.year, dt.month - 1)
+
+
+def _fmt(dt):
+    return dt.strftime("%d %b %Y")
+
+
+def order_commission(o):
+    return round(float(o.get("commission_amount", o.get("service_fee", round(o.get("total", 0) * 0.05, 2)))), 2)
+
+
+def effective_status(inv):
+    if inv.get("status") == "paid":
+        return "paid"
+    try:
+        due = datetime.fromisoformat(inv["due_date"])
+    except Exception:
+        return inv.get("status", "pending")
+    return "overdue" if datetime.now(timezone.utc) > due else "pending"
+
+
+async def recompute_freeze(supplier_id):
+    invs = await db.invoices.find({"supplier_id": supplier_id}, {"_id": 0}).to_list(500)
+    frozen = any(effective_status(i) == "overdue" for i in invs)
+    await db.users.update_one({"id": supplier_id}, {"$set": {"billing_frozen": frozen}})
+    return frozen
+
+
+async def do_generate_invoices(period=None):
+    settings = await get_settings()
+    issuer = {k: settings.get(k, ISSUER_DEFAULTS[k]) for k in ISSUER_DEFAULTS}
+    now = datetime.now(timezone.utc)
+    if period:
+        y, m = int(period[:4]), int(period[5:7])
+    else:
+        y, m = _prev_month(now)
+    start, nxt, label, period_str = _month_bounds(y, m)
+    issue_dt = now
+    due_dt = issue_dt + timedelta(days=5)
+    created = []
+    suppliers = await db.users.find({"role": "supplier"}, {"_id": 0, "password_hash": 0}).to_list(1000)
+    for sup in suppliers:
+        if await db.invoices.find_one({"supplier_id": sup["id"], "period": period_str}):
+            continue
+        orders = await db.orders.find({"supplier_id": sup["id"], "status": "Delivered",
+            "delivered_at": {"$gte": start.isoformat(), "$lt": nxt.isoformat()}}, {"_id": 0}).to_list(5000)
+        orders = [o for o in orders if not o.get("invoice_id")]
+        if not orders:
+            continue
+        line_items, amount, sales = [], 0.0, 0.0
+        for o in orders:
+            c = order_commission(o)
+            amount += c
+            sales += float(o.get("total", 0))
+            line_items.append({"order_no": o["order_no"], "date": (o.get("delivered_at") or "")[:10],
+                               "order_total": round(float(o.get("total", 0)), 2), "commission": c})
+        iid = str(uuid.uuid4())
+        inv = {"id": iid, "invoice_no": f"INV-{period_str.replace('-', '')}-{iid[:4].upper()}",
+               "supplier_id": sup["id"], "supplier_name": sup.get("business_name", ""),
+               "supplier_tax_id": sup.get("identification_number", ""), "supplier_email": sup.get("email", ""),
+               "period": period_str, "period_label": label,
+               "line_items": line_items, "order_count": len(orders),
+               "total_sales": round(sales, 2), "amount": round(amount, 2), "currency": "GEL",
+               "status": "pending", "issue_date": issue_dt.isoformat(), "issue_label": _fmt(issue_dt),
+               "due_date": due_dt.isoformat(), "due_label": _fmt(due_dt), "paid_at": None,
+               **issuer, "created_at": now_iso()}
+        await db.invoices.insert_one(dict(inv))
+        await db.orders.update_many({"id": {"$in": [o["id"] for o in orders]}}, {"$set": {"invoice_id": iid}})
+        await notify(sup["id"], f"New commission invoice {inv['invoice_no']} ({label}) — ₾{inv['amount']:.2f}, due {inv['due_label']}", "billing")
+        if sup.get("email"):
+            await try_send_email(to=sup["email"], subject=f"Your Distro Logistics commission invoice {inv['invoice_no']}",
+                                 html=invoice_email_html(inv))
+        created.append(inv["invoice_no"])
+    return created
+
+
+async def do_billing_check():
+    now = datetime.now(timezone.utc)
+    invs = await db.invoices.find({"status": {"$ne": "paid"}}, {"_id": 0}).to_list(2000)
+    reminded, overdue_sups = [], set()
+    for inv in invs:
+        if effective_status(inv) != "overdue":
+            continue
+        overdue_sups.add(inv["supplier_id"])
+        if inv.get("reminded_on") != now.date().isoformat():
+            sup = await db.users.find_one({"id": inv["supplier_id"]}, {"_id": 0})
+            if sup and sup.get("email"):
+                await try_send_email(to=sup["email"], subject=f"Overdue: commission invoice {inv['invoice_no']}",
+                                     html=reminder_email_html(inv))
+            await db.invoices.update_one({"id": inv["id"]}, {"$set": {"reminded_on": now.date().isoformat()}})
+            await notify(inv["supplier_id"], f"Invoice {inv['invoice_no']} is overdue. New order acceptance is paused until paid.", "billing")
+            reminded.append(inv["invoice_no"])
+    all_sups = await db.users.find({"role": "supplier"}, {"_id": 0}).to_list(1000)
+    for sup in all_sups:
+        await db.users.update_one({"id": sup["id"]}, {"$set": {"billing_frozen": sup["id"] in overdue_sups}})
+    return reminded
+
+
+@api.get("/invoices")
+async def list_invoices(status: Optional[str] = None, supplier_id: Optional[str] = None, user: dict = Depends(get_current_user)):
+    if user["role"] == "supplier":
+        q = {"supplier_id": user["id"]}
+    elif user["role"] == "admin":
+        q = {"supplier_id": supplier_id} if supplier_id else {}
+    else:
+        raise HTTPException(403, "Not allowed")
+    invs = await db.invoices.find(q, {"_id": 0}).sort("created_at", -1).to_list(2000)
+    for i in invs:
+        i["effective_status"] = effective_status(i)
+    if status and status != "all":
+        invs = [i for i in invs if i["effective_status"] == status]
+    return invs
+
+
+@api.get("/invoices/{iid}/pdf")
+async def invoice_pdf(iid: str, user: dict = Depends(get_current_user)):
+    inv = await db.invoices.find_one({"id": iid}, {"_id": 0})
+    if not inv:
+        raise HTTPException(404, "Invoice not found")
+    if user["role"] == "retailer":
+        raise HTTPException(403, "Not allowed")
+    if user["role"] == "supplier" and inv["supplier_id"] != user["id"]:
+        raise HTTPException(404, "Invoice not found")
+    pdf = build_invoice_pdf(inv)
+    return StreamingResponse(io.BytesIO(pdf), media_type="application/pdf",
+                             headers={"Content-Disposition": f'inline; filename="{inv["invoice_no"]}.pdf"'})
+
+
+@api.put("/admin/invoices/{iid}/paid")
+async def mark_invoice_paid(iid: str, user: dict = Depends(require_role("admin"))):
+    inv = await db.invoices.find_one({"id": iid}, {"_id": 0})
+    if not inv:
+        raise HTTPException(404, "Invoice not found")
+    await db.invoices.update_one({"id": iid}, {"$set": {"status": "paid", "paid_at": now_iso()}})
+    await recompute_freeze(inv["supplier_id"])
+    await notify(inv["supplier_id"], f"Invoice {inv['invoice_no']} has been marked as paid. Thank you!", "billing")
+    updated = await db.invoices.find_one({"id": iid}, {"_id": 0})
+    updated["effective_status"] = effective_status(updated)
+    return updated
+
+
+@api.post("/admin/invoices/{iid}/remind")
+async def remind_invoice(iid: str, user: dict = Depends(require_role("admin"))):
+    inv = await db.invoices.find_one({"id": iid}, {"_id": 0})
+    if not inv:
+        raise HTTPException(404, "Invoice not found")
+    sup = await db.users.find_one({"id": inv["supplier_id"]}, {"_id": 0})
+    sent = False
+    if sup and sup.get("email"):
+        sent = await try_send_email(to=sup["email"], subject=f"Reminder: commission invoice {inv['invoice_no']}",
+                                    html=reminder_email_html(inv))
+    await notify(inv["supplier_id"], f"Payment reminder sent for invoice {inv['invoice_no']}.", "billing")
+    return {"sent": sent, "email": sup.get("email") if sup else ""}
+
+
+@api.post("/admin/invoices/generate")
+async def admin_generate_invoices(user: dict = Depends(require_role("admin"))):
+    created = await do_generate_invoices()
+    return {"created": created, "count": len(created)}
+
+
+@api.get("/admin/financials")
+async def admin_financials(user: dict = Depends(require_role("admin"))):
+    now = datetime.now(timezone.utc)
+    cs, cn, clabel, _ = _month_bounds(now.year, now.month)
+    suppliers = await db.users.find({"role": "supplier"}, {"_id": 0, "password_hash": 0}).to_list(1000)
+    invs_all = await db.invoices.find({}, {"_id": 0}).sort("created_at", -1).to_list(3000)
+    rows = []
+    tot_outstanding = tot_accrued = tot_collected = 0.0
+    for sup in suppliers:
+        s_invs = [i for i in invs_all if i["supplier_id"] == sup["id"]]
+        for i in s_invs:
+            i["effective_status"] = effective_status(i)
+        cur = await db.orders.find({"supplier_id": sup["id"], "status": "Delivered",
+            "delivered_at": {"$gte": cs.isoformat(), "$lt": cn.isoformat()}}, {"_id": 0}).to_list(5000)
+        cur = [o for o in cur if not o.get("invoice_id")]
+        accrued = round(sum(order_commission(o) for o in cur), 2)
+        month_sales = round(sum(float(o.get("total", 0)) for o in cur), 2)
+        outstanding = round(sum(i["amount"] for i in s_invs if i["effective_status"] != "paid"), 2)
+        collected = round(sum(i["amount"] for i in s_invs if i["effective_status"] == "paid"), 2)
+        tot_outstanding += outstanding
+        tot_accrued += accrued
+        tot_collected += collected
+        rows.append({"supplier_id": sup["id"], "supplier_name": sup.get("business_name", ""),
+                     "email": sup.get("email", ""), "tax_id": sup.get("identification_number", ""),
+                     "frozen": bool(sup.get("billing_frozen")), "month_sales": month_sales,
+                     "accrued_commission": accrued, "outstanding": outstanding, "collected": collected,
+                     "invoices": s_invs})
+    return {"period_label": clabel, "suppliers": rows,
+            "totals": {"outstanding": round(tot_outstanding, 2), "accrued": round(tot_accrued, 2),
+                       "collected": round(tot_collected, 2)}}
+
+
+def _check_cron_auth(authorization):
+    expected = os.environ.get("WEBHOOK_CRON_SECRET", "")
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(401, "Unauthorized")
+    token = authorization.split(" ", 1)[1]
+    if not expected or not secrets.compare_digest(token, expected):
+        raise HTTPException(401, "Unauthorized")
+
+
+@api.post("/cron/generate-invoices")
+async def cron_generate_invoices(background: BackgroundTasks, authorization: Optional[str] = Header(None)):
+    # Cron endpoints must ack 2xx immediately; enqueue/background the actual work.
+    _check_cron_auth(authorization)
+    background.add_task(do_generate_invoices)
+    return {"accepted": True}
+
+
+@api.post("/cron/billing-check")
+async def cron_billing_check(background: BackgroundTasks, authorization: Optional[str] = Header(None)):
+    # Cron endpoints must ack 2xx immediately; enqueue/background the actual work.
+    _check_cron_auth(authorization)
+    background.add_task(do_billing_check)
+    return {"accepted": True}
 
 
 app.include_router(api)

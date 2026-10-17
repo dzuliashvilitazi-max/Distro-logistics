@@ -8,7 +8,7 @@ import { api } from "@/lib/api";
 import { LANGUAGES } from "@/lib/i18n";
 import {
   Truck, Package, LayoutDashboard, ShoppingCart, ClipboardList, Boxes,
-  Users, MessageSquare, Settings, Bell, Moon, Sun, LogOut, Menu, X, BarChart3, Globe,
+  Users, MessageSquare, Settings, Bell, Moon, Sun, LogOut, Menu, X, BarChart3, Globe, FileText, Wallet,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -29,12 +29,14 @@ const NAV = {
     { to: "/supplier", key: "dashboard", testid: "nav-dashboard", icon: LayoutDashboard },
     { to: "/supplier/inventory", key: "inventory", testid: "nav-inventory", icon: Boxes },
     { to: "/supplier/orders", key: "orders", testid: "nav-orders", icon: ClipboardList },
+    { to: "/supplier/invoices", key: "invoices", testid: "nav-invoices", icon: FileText },
     { to: "/messages", key: "messages", testid: "nav-messages", icon: MessageSquare },
     { to: "/profile", key: "profile", testid: "nav-profile", icon: Settings },
   ],
   admin: [
     { to: "/admin", key: "overview", testid: "nav-overview", icon: BarChart3 },
     { to: "/admin/orders", key: "orders", testid: "nav-orders", icon: ClipboardList },
+    { to: "/admin/financials", key: "financials", testid: "nav-financials", icon: Wallet },
     { to: "/admin/users", key: "users", testid: "nav-users", icon: Users },
     { to: "/admin/settings", key: "settings", testid: "nav-settings", icon: Settings },
     { to: "/messages", key: "messages", testid: "nav-messages", icon: MessageSquare },

@@ -134,15 +134,20 @@ async def seed_data(db, hash_password):
         for st in ["Processing", "In Transit", "Delivered"]:
             if ["Pending", "Processing", "In Transit", "Delivered"].index(st) <= ["Pending", "Processing", "In Transit", "Delivered", "Cancelled"].index(status) if status != "Cancelled" else False:
                 tl.append({"status": st, "at": iso(9 - n)})
+        total_amt = round(price * qty, 2)
+        extra = {}
+        if status == "Delivered":
+            extra = {"delivered_at": iso(8 - n), "commission_amount": round(total_amt * 0.05, 2),
+                     "service_fee": round(total_amt * 0.05, 2)}
         await db.orders.insert_one({
             "id": oid, "order_no": "ORD-" + oid[:8].upper(),
             "retailer_id": rid, "retailer_name": ret["business_name"],
             "supplier_id": prod["supplier_id"], "supplier_name": prod["supplier_name"],
             "items": [{"product_id": prod["id"], "name": prod["name"], "image": prod["image"],
                        "supplier_id": prod["supplier_id"], "quantity": qty, "unit_price": price}],
-            "total": round(price * qty, 2), "status": status,
+            "total": total_amt, "status": status,
             "delivery_address": ret["address"], "notes": "Deliver to rear loading dock.",
-            "delivery_window": "9am - 12pm", "payment_method": payment, "timeline": tl,
+            "delivery_window": "9am - 12pm", "payment_method": payment, "timeline": tl, **extra,
             "created_at": iso(10 - n), "updated_at": iso(8 - n),
         })
 
@@ -153,3 +158,80 @@ async def seed_data(db, hash_password):
     await db.messages.insert_one({"id": str(uuid.uuid4()), "from_id": sup_ids[0], "from_name": SUPPLIERS[0]["business_name"],
                                   "to_id": ret_ids[0], "text": "Hello! Lead time is 2 business days. Shipping tomorrow.", "order_id": "",
                                   "read": False, "created_at": iso(2)})
+
+    await _seed_billing(db, sup_ids, prod_docs, ret_ids, RETAILERS)
+
+
+ISSUER = {"issuer_name": "Distro Logistics LLC", "issuer_tax_id": "400123456", "issuer_iban": "GE00DL0000000000001234"}
+
+
+async def _seed_billing(db, sup_ids, prod_docs, ret_ids, retailers):
+    """Seed prior-month commission invoices (paid / pending / overdue+frozen) for a full demo."""
+    now = datetime.now(timezone.utc)
+    py, pm = (now.year - 1, 12) if now.month == 1 else (now.year, now.month - 1)
+    period = f"{py:04d}-{pm:02d}"
+    period_label = datetime(py, pm, 1, tzinfo=timezone.utc).strftime("%B %Y")
+    deliv = datetime(py, pm, 15, 10, 0, tzinfo=timezone.utc)
+
+    def fmt(dt):
+        return dt.strftime("%d %b %Y")
+
+    plan = [
+        {"s": 0, "orders": 2, "status": "paid", "issue": now - timedelta(days=8), "frozen": False},
+        {"s": 1, "orders": 2, "status": "pending", "issue": now - timedelta(days=2), "frozen": False},
+        {"s": 2, "orders": 3, "status": "pending", "issue": now - timedelta(days=10), "frozen": True},
+    ]
+    for cfg in plan:
+        sid = sup_ids[cfg["s"]]
+        sup_prods = [p for p in prod_docs if p["supplier_id"] == sid]
+        if not sup_prods:
+            continue
+        iid = str(uuid.uuid4())
+        line_items, amount, sales = [], 0.0, 0.0
+        for k in range(cfg["orders"]):
+            prod = sup_prods[k % len(sup_prods)]
+            qty = prod["moq"] * (3 + k)
+            price = prod["tier_pricing"][0]["price"]
+            for t in prod["tier_pricing"]:
+                if qty >= t["min_qty"]:
+                    price = t["price"]
+            total = round(price * qty, 2)
+            comm = round(total * 0.05, 2)
+            rid = ret_ids[k % len(ret_ids)]
+            ret = retailers[k % len(retailers)]
+            oid = str(uuid.uuid4())
+            d = (deliv + timedelta(days=k)).isoformat()
+            await db.orders.insert_one({
+                "id": oid, "order_no": "ORD-" + oid[:8].upper(),
+                "retailer_id": rid, "retailer_name": ret["business_name"],
+                "supplier_id": sid, "supplier_name": prod["supplier_name"],
+                "items": [{"product_id": prod["id"], "name": prod["name"], "image": prod["image"],
+                           "supplier_id": sid, "quantity": qty, "unit_price": price}],
+                "total": total, "service_fee": comm, "commission_amount": comm, "fee_payer": "supplier",
+                "status": "Delivered", "delivery_address": ret["address"], "notes": "Monthly billing history.",
+                "delivery_window": "9am - 12pm", "payment_method": ["cash", "card", "consignment"][k % 3],
+                "timeline": [{"status": "Pending", "at": (deliv - timedelta(days=3)).isoformat()},
+                             {"status": "Delivered", "at": d}],
+                "delivered_at": d, "invoice_id": iid,
+                "created_at": (deliv - timedelta(days=3)).isoformat(), "updated_at": d,
+            })
+            line_items.append({"order_no": "ORD-" + oid[:8].upper(), "date": d[:10],
+                               "order_total": total, "commission": comm})
+            amount += comm
+            sales += total
+        issue_dt = cfg["issue"]
+        due_dt = issue_dt + timedelta(days=5)
+        sup = await db.users.find_one({"id": sid})
+        inv = {"id": iid, "invoice_no": f"INV-{period.replace('-', '')}-{iid[:4].upper()}",
+               "supplier_id": sid, "supplier_name": sup["business_name"],
+               "supplier_tax_id": sup.get("identification_number", ""), "supplier_email": sup["email"],
+               "period": period, "period_label": period_label,
+               "line_items": line_items, "order_count": cfg["orders"],
+               "total_sales": round(sales, 2), "amount": round(amount, 2), "currency": "GEL",
+               "status": cfg["status"], "issue_date": issue_dt.isoformat(), "issue_label": fmt(issue_dt),
+               "due_date": due_dt.isoformat(), "due_label": fmt(due_dt),
+               "paid_at": (issue_dt + timedelta(days=2)).isoformat() if cfg["status"] == "paid" else None,
+               **ISSUER, "created_at": issue_dt.isoformat()}
+        await db.invoices.insert_one(dict(inv))
+        if cfg["frozen"]:
+            await db.users.update_one({"id": sid}, {"$set": {"billing_frozen": True}})

@@ -20,6 +20,8 @@ import AdminDashboard from "@/pages/admin/AdminDashboard";
 import AdminUsers from "@/pages/admin/AdminUsers";
 import AdminOrders from "@/pages/admin/AdminOrders";
 import AdminSettings from "@/pages/admin/AdminSettings";
+import AdminFinancials from "@/pages/admin/AdminFinancials";
+import SupplierInvoices from "@/pages/supplier/SupplierInvoices";
 import Messages from "@/pages/Messages";
 import Profile from "@/pages/Profile";
 
@@ -55,11 +57,13 @@ function App() {
               <Route path="/supplier" element={<Page roles={["supplier"]}><SupplierDashboard /></Page>} />
               <Route path="/supplier/inventory" element={<Page roles={["supplier"]}><Inventory /></Page>} />
               <Route path="/supplier/orders" element={<Page roles={["supplier"]}><SupplierOrders /></Page>} />
+              <Route path="/supplier/invoices" element={<Page roles={["supplier"]}><SupplierInvoices /></Page>} />
 
               <Route path="/admin" element={<Page roles={["admin"]}><AdminDashboard /></Page>} />
               <Route path="/admin/orders" element={<Page roles={["admin"]}><AdminOrders /></Page>} />
               <Route path="/admin/users" element={<Page roles={["admin"]}><AdminUsers /></Page>} />
               <Route path="/admin/settings" element={<Page roles={["admin"]}><AdminSettings /></Page>} />
+              <Route path="/admin/financials" element={<Page roles={["admin"]}><AdminFinancials /></Page>} />
 
               <Route path="/messages" element={<Page roles={["retailer", "supplier", "admin"]}><Messages /></Page>} />
               <Route path="/profile" element={<Page roles={["retailer", "supplier", "admin"]}><Profile /></Page>} />
