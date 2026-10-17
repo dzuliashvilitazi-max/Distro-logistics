@@ -2,11 +2,13 @@ import { useEffect, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
 import { useTheme } from "@/context/ThemeContext";
+import { useI18n } from "@/context/I18nContext";
 import { useCart } from "@/context/CartContext";
 import { api } from "@/lib/api";
+import { LANGUAGES } from "@/lib/i18n";
 import {
   Truck, Package, LayoutDashboard, ShoppingCart, ClipboardList, Boxes,
-  Users, MessageSquare, Settings, Bell, Moon, Sun, LogOut, Menu, X, BarChart3,
+  Users, MessageSquare, Settings, Bell, Moon, Sun, LogOut, Menu, X, BarChart3, Globe,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -17,26 +19,49 @@ import {
 
 const NAV = {
   retailer: [
-    { to: "/catalog", label: "Catalog", icon: Package },
-    { to: "/cart", label: "Cart", icon: ShoppingCart },
-    { to: "/orders", label: "My Orders", icon: ClipboardList },
-    { to: "/messages", label: "Messages", icon: MessageSquare },
-    { to: "/profile", label: "Profile", icon: Settings },
+    { to: "/catalog", key: "catalog", testid: "nav-catalog", icon: Package },
+    { to: "/cart", key: "cart", testid: "nav-cart", icon: ShoppingCart },
+    { to: "/orders", key: "myOrders", testid: "nav-my-orders", icon: ClipboardList },
+    { to: "/messages", key: "messages", testid: "nav-messages", icon: MessageSquare },
+    { to: "/profile", key: "profile", testid: "nav-profile", icon: Settings },
   ],
   supplier: [
-    { to: "/supplier", label: "Dashboard", icon: LayoutDashboard },
-    { to: "/supplier/inventory", label: "Inventory", icon: Boxes },
-    { to: "/supplier/orders", label: "Orders", icon: ClipboardList },
-    { to: "/messages", label: "Messages", icon: MessageSquare },
-    { to: "/profile", label: "Profile", icon: Settings },
+    { to: "/supplier", key: "dashboard", testid: "nav-dashboard", icon: LayoutDashboard },
+    { to: "/supplier/inventory", key: "inventory", testid: "nav-inventory", icon: Boxes },
+    { to: "/supplier/orders", key: "orders", testid: "nav-orders", icon: ClipboardList },
+    { to: "/messages", key: "messages", testid: "nav-messages", icon: MessageSquare },
+    { to: "/profile", key: "profile", testid: "nav-profile", icon: Settings },
   ],
   admin: [
-    { to: "/admin", label: "Overview", icon: BarChart3 },
-    { to: "/admin/users", label: "Users", icon: Users },
-    { to: "/messages", label: "Messages", icon: MessageSquare },
-    { to: "/profile", label: "Profile", icon: Settings },
+    { to: "/admin", key: "overview", testid: "nav-overview", icon: BarChart3 },
+    { to: "/admin/orders", key: "orders", testid: "nav-orders", icon: ClipboardList },
+    { to: "/admin/users", key: "users", testid: "nav-users", icon: Users },
+    { to: "/messages", key: "messages", testid: "nav-messages", icon: MessageSquare },
+    { to: "/profile", key: "profile", testid: "nav-profile", icon: Settings },
   ],
 };
+
+function LanguageSwitcher() {
+  const { lang, setLang } = useI18n();
+  const current = LANGUAGES.find((l) => l.code === lang) || LANGUAGES[1];
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button variant="ghost" size="icon" className="relative" data-testid="language-switcher">
+          <Globe className="h-5 w-5" />
+          <span className="absolute -bottom-0.5 right-0 rounded bg-primary px-0.5 text-[8px] font-bold text-primary-foreground">{current.short}</span>
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-40 bg-popover">
+        {LANGUAGES.map((l) => (
+          <DropdownMenuItem key={l.code} onClick={() => setLang(l.code)} data-testid={`lang-option-${l.code}`} className={l.code === lang ? "bg-primary/10 font-semibold text-primary" : ""}>
+            {l.label}
+          </DropdownMenuItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
 
 function NotificationBell() {
   const [items, setItems] = useState([]);
@@ -83,13 +108,14 @@ function NotificationBell() {
 export function AppLayout({ children }) {
   const { user, logout } = useAuth();
   const { theme, toggle } = useTheme();
+  const { t } = useI18n();
   const { count } = useCart();
   const location = useLocation();
   const navigate = useNavigate();
   const [mobileOpen, setMobileOpen] = useState(false);
   const nav = NAV[user.role] || [];
 
-  const roleLabel = { retailer: "Retailer", supplier: "Supplier", admin: "Admin" }[user.role];
+  const roleLabel = t(`roles.${user.role}`);
 
   const SideNav = () => (
     <nav className="flex flex-col gap-1 p-3">
@@ -101,14 +127,14 @@ export function AppLayout({ children }) {
             key={item.to}
             to={item.to}
             onClick={() => setMobileOpen(false)}
-            data-testid={`nav-${item.label.toLowerCase().replace(/\s/g, "-")}`}
+            data-testid={item.testid}
             className={cn(
               "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors duration-200",
               active ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:bg-secondary hover:text-foreground"
             )}
           >
             <Icon className="h-4.5 w-4.5" style={{ width: 18, height: 18 }} />
-            <span>{item.label}</span>
+            <span>{t(`nav.${item.key}`)}</span>
             {item.to === "/cart" && count > 0 && (
               <span className="ml-auto rounded-full bg-primary-foreground/20 px-1.5 text-xs font-bold">{count}</span>
             )}
@@ -143,6 +169,7 @@ export function AppLayout({ children }) {
             <Button variant="ghost" size="icon" onClick={toggle} data-testid="theme-toggle">
               {theme === "dark" ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
             </Button>
+            <LanguageSwitcher />
             <NotificationBell />
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
@@ -157,10 +184,10 @@ export function AppLayout({ children }) {
                 <DropdownMenuLabel className="truncate">{user.email}</DropdownMenuLabel>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem onClick={() => navigate("/profile")} data-testid="menu-profile">
-                  <Settings className="mr-2 h-4 w-4" /> Profile Settings
+                  <Settings className="mr-2 h-4 w-4" /> {t("common.profileSettings")}
                 </DropdownMenuItem>
                 <DropdownMenuItem onClick={() => { logout(); navigate("/login"); }} data-testid="logout-btn">
-                  <LogOut className="mr-2 h-4 w-4" /> Sign out
+                  <LogOut className="mr-2 h-4 w-4" /> {t("common.signOut")}
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>

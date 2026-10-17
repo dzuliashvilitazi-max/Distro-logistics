@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import { api, formatApiError } from "@/lib/api";
+import { useI18n } from "@/context/I18nContext";
 import { StatusBadge } from "@/components/StatusBadge";
+import { PaymentBadge } from "@/pages/admin/AdminOrders";
 import { Package, ChevronDown, ChevronUp, XCircle, CheckCircle2, Clock, Truck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
@@ -30,6 +32,7 @@ export function OrderTimeline({ order }) {
 }
 
 export default function Orders() {
+  const { t } = useI18n();
   const [orders, setOrders] = useState([]);
   const [expanded, setExpanded] = useState(null);
 
@@ -42,11 +45,11 @@ export default function Orders() {
   };
 
   if (orders.length === 0)
-    return <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-border py-24 text-center"><Package className="h-12 w-12 text-muted-foreground" /><p className="mt-3 text-sm text-muted-foreground">No orders yet.</p></div>;
+    return <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-border py-24 text-center"><Package className="h-12 w-12 text-muted-foreground" /><p className="mt-3 text-sm text-muted-foreground">{t("orders.noOrders")}</p></div>;
 
   return (
     <div>
-      <h1 className="mb-6 text-2xl font-bold tracking-tight sm:text-3xl">Order History</h1>
+      <h1 className="mb-6 text-2xl font-bold tracking-tight sm:text-3xl">{t("orders.orderHistory")}</h1>
       <div className="space-y-4">
         {orders.map((o) => (
           <div key={o.id} data-testid={`order-${o.id}`} className="rounded-xl border border-border bg-card p-5">
@@ -55,6 +58,7 @@ export default function Orders() {
                 <div className="flex items-center gap-2.5">
                   <p className="font-mono text-sm font-bold">{o.order_no}</p>
                   <StatusBadge status={o.status} testid={`order-status-${o.id}`} />
+                  <PaymentBadge method={o.payment_method} />
                 </div>
                 <p className="mt-1 text-sm text-muted-foreground">{o.supplier_name} · {new Date(o.created_at).toLocaleDateString()}</p>
               </div>
@@ -65,10 +69,10 @@ export default function Orders() {
 
             <div className="flex items-center justify-between">
               <Button variant="ghost" size="sm" onClick={() => setExpanded(expanded === o.id ? null : o.id)} data-testid={`expand-order-${o.id}`}>
-                {expanded === o.id ? <ChevronUp className="mr-1 h-4 w-4" /> : <ChevronDown className="mr-1 h-4 w-4" />} Details
+                {expanded === o.id ? <ChevronUp className="mr-1 h-4 w-4" /> : <ChevronDown className="mr-1 h-4 w-4" />} {t("orders.details")}
               </Button>
               {(o.status === "Pending" || o.status === "Processing") && (
-                <Button variant="outline" size="sm" className="text-rose-500 hover:bg-rose-500/10" onClick={() => cancel(o.id)} data-testid={`cancel-order-${o.id}`}><XCircle className="mr-1 h-4 w-4" /> Cancel</Button>
+                <Button variant="outline" size="sm" className="text-rose-500 hover:bg-rose-500/10" onClick={() => cancel(o.id)} data-testid={`cancel-order-${o.id}`}><XCircle className="mr-1 h-4 w-4" /> {t("orders.cancel")}</Button>
               )}
             </div>
 
@@ -83,9 +87,10 @@ export default function Orders() {
                   </div>
                 ))}
                 <div className="pt-2 text-sm text-muted-foreground">
-                  <p><span className="font-semibold text-foreground">Deliver to:</span> {o.delivery_address}</p>
-                  <p><span className="font-semibold text-foreground">Window:</span> {o.delivery_window}</p>
-                  {o.notes && <p><span className="font-semibold text-foreground">Notes:</span> {o.notes}</p>}
+                  <p><span className="font-semibold text-foreground">{t("orders.payment")}:</span> {t(`payment.${o.payment_method || "cash"}`)}</p>
+                  <p><span className="font-semibold text-foreground">{t("orders.deliverTo")}:</span> {o.delivery_address}</p>
+                  <p><span className="font-semibold text-foreground">{t("orders.window")}:</span> {o.delivery_window}</p>
+                  {o.notes && <p><span className="font-semibold text-foreground">{t("orders.notes")}:</span> {o.notes}</p>}
                 </div>
               </div>
             )}

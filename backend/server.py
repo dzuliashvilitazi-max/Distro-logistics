@@ -113,6 +113,7 @@ class OrderIn(BaseModel):
     delivery_address: str
     notes: Optional[str] = ""
     delivery_window: Optional[str] = ""
+    payment_method: Optional[str] = "cash"  # cash | card | consignment
 
 class StatusUpdate(BaseModel):
     status: str
@@ -238,6 +239,7 @@ async def create_order(body: OrderIn, user: dict = Depends(require_role("retaile
             "items": [i.model_dump() for i in items], "total": round(total, 2),
             "status": "Pending", "delivery_address": body.delivery_address,
             "notes": body.notes or "", "delivery_window": body.delivery_window or "",
+            "payment_method": body.payment_method or "cash",
             "timeline": [{"status": "Pending", "at": now_iso()}],
             "created_at": now_iso(), "updated_at": now_iso(),
         }

@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import { api, formatApiError } from "@/lib/api";
+import { useI18n } from "@/context/I18nContext";
 import { StatusBadge } from "@/components/StatusBadge";
+import { PaymentBadge } from "@/pages/admin/AdminOrders";
 import { Check, X, Truck, Package, ClipboardList } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
@@ -10,6 +12,7 @@ const TABS = ["All", "Pending", "Processing", "In Transit", "Delivered", "Cancel
 const NEXT = { Pending: "Processing", Processing: "In Transit", "In Transit": "Delivered" };
 
 export default function SupplierOrders() {
+  const { t: tr } = useI18n();
   const [orders, setOrders] = useState([]);
   const [tab, setTab] = useState("All");
 
@@ -25,7 +28,7 @@ export default function SupplierOrders() {
 
   return (
     <div>
-      <h1 className="mb-6 text-2xl font-bold tracking-tight sm:text-3xl">Order Management</h1>
+      <h1 className="mb-6 text-2xl font-bold tracking-tight sm:text-3xl">{tr("orders.orderManagement")}</h1>
       <div className="mb-6 flex flex-wrap gap-2">
         {TABS.map((t) => (
           <button key={t} onClick={() => setTab(t)} data-testid={`order-tab-${t.replace(/\s/g, "-")}`}
@@ -36,16 +39,16 @@ export default function SupplierOrders() {
       </div>
 
       {filtered.length === 0 ? (
-        <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-border py-20 text-center"><ClipboardList className="h-10 w-10 text-muted-foreground" /><p className="mt-3 text-sm text-muted-foreground">No orders in this view.</p></div>
+        <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-border py-20 text-center"><ClipboardList className="h-10 w-10 text-muted-foreground" /><p className="mt-3 text-sm text-muted-foreground">{tr("orders.noOrdersView")}</p></div>
       ) : (
         <div className="space-y-4">
           {filtered.map((o) => (
             <div key={o.id} data-testid={`supplier-order-${o.id}`} className="rounded-xl border border-border bg-card p-5">
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
-                  <div className="flex items-center gap-2.5"><p className="font-mono text-sm font-bold">{o.order_no}</p><StatusBadge status={o.status} /></div>
-                  <p className="mt-1 text-sm text-muted-foreground">From <span className="font-medium text-foreground">{o.retailer_name}</span> · {new Date(o.created_at).toLocaleString()}</p>
-                  <p className="mt-0.5 text-xs text-muted-foreground">Deliver to: {o.delivery_address} · {o.delivery_window}</p>
+                  <div className="flex flex-wrap items-center gap-2.5"><p className="font-mono text-sm font-bold">{o.order_no}</p><StatusBadge status={o.status} /><PaymentBadge method={o.payment_method} /></div>
+                  <p className="mt-1 text-sm text-muted-foreground">{tr("orders.from")} <span className="font-medium text-foreground">{o.retailer_name}</span> · {new Date(o.created_at).toLocaleString()}</p>
+                  <p className="mt-0.5 text-xs text-muted-foreground">{tr("orders.deliverTo")}: {o.delivery_address} · {o.delivery_window}</p>
                 </div>
                 <p className="text-xl font-extrabold">${o.total.toFixed(2)}</p>
               </div>

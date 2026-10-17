@@ -1,0 +1,87 @@
+// Lightweight i18n dictionary for Distro Logistics.
+export const LANGUAGES = [
+  { code: "ka", label: "ქართული", short: "GE" },
+  { code: "en", label: "English", short: "EN" },
+  { code: "ru", label: "Русский", short: "RU" },
+];
+
+export const PAYMENT_METHODS = ["cash", "card", "consignment"];
+
+const en = {
+  "nav.catalog": "Catalog", "nav.cart": "Cart", "nav.myOrders": "My Orders",
+  "nav.messages": "Messages", "nav.profile": "Profile", "nav.dashboard": "Dashboard",
+  "nav.inventory": "Inventory", "nav.orders": "Orders", "nav.overview": "Overview", "nav.users": "Users",
+  "roles.retailer": "Retailer", "roles.supplier": "Supplier", "roles.admin": "Admin",
+  "common.signOut": "Sign out", "common.profileSettings": "Profile Settings", "common.language": "Language",
+  "common.product": "Product", "common.category": "Category", "common.status": "Status",
+  "common.actions": "Actions", "common.total": "Total",
+  "checkout.cartTitle": "Bulk Cart & Checkout", "checkout.deliveryDetails": "Delivery Details",
+  "checkout.deliveryAddress": "Delivery warehouse address", "checkout.deliveryWindow": "Delivery time window",
+  "checkout.orderNotes": "Order notes", "checkout.paymentMethod": "Payment method",
+  "checkout.placeOrder": "Place Bulk Order", "checkout.orderTotal": "Order Total", "checkout.items": "Items",
+  "checkout.cartEmptyTitle": "Your cart is empty", "checkout.cartEmptyDesc": "Browse the catalog to start a bulk order.",
+  "checkout.browseCatalog": "Browse Catalog", "checkout.addressPlaceholder": "Warehouse / store address",
+  "checkout.notesPlaceholder": "Special instructions...",
+  "payment.cash": "Cash / Pay on Delivery", "payment.card": "Card Payment",
+  "payment.consignment": "Consignment / Post-Payment",
+  "orders.orderHistory": "Order History", "orders.orderManagement": "Order Management",
+  "orders.allOrders": "All Orders", "orders.noOrders": "No orders yet.", "orders.noOrdersView": "No orders in this view.",
+  "orders.details": "Details", "orders.cancel": "Cancel", "orders.deliverTo": "Deliver to",
+  "orders.window": "Window", "orders.notes": "Notes", "orders.payment": "Payment", "orders.from": "From",
+  "orders.retailer": "Retailer", "orders.supplier": "Supplier",
+  "catalog.title": "B2B Product Catalog", "catalog.subtitle": "Wholesale products with tier pricing & minimum order quantities.",
+  "catalog.searchPlaceholder": "Search products...", "catalog.inStockOnly": "In stock only", "catalog.bulkOrder": "Bulk Order",
+};
+
+const ka = {
+  "nav.catalog": "კატალოგი", "nav.cart": "კალათა", "nav.myOrders": "ჩემი შეკვეთები",
+  "nav.messages": "მიმოწერა", "nav.profile": "პროფილი", "nav.dashboard": "დაფა",
+  "nav.inventory": "მარაგი", "nav.orders": "შეკვეთები", "nav.overview": "მიმოხილვა", "nav.users": "მომხმარებლები",
+  "roles.retailer": "საცალო", "roles.supplier": "მომწოდებელი", "roles.admin": "ადმინი",
+  "common.signOut": "გასვლა", "common.profileSettings": "პროფილის პარამეტრები", "common.language": "ენა",
+  "common.product": "პროდუქტი", "common.category": "კატეგორია", "common.status": "სტატუსი",
+  "common.actions": "მოქმედებები", "common.total": "ჯამი",
+  "checkout.cartTitle": "კალათა და გადახდა", "checkout.deliveryDetails": "მიწოდების დეტალები",
+  "checkout.deliveryAddress": "მიწოდების მისამართი", "checkout.deliveryWindow": "მიწოდების დრო",
+  "checkout.orderNotes": "შეკვეთის კომენტარი", "checkout.paymentMethod": "გადახდის მეთოდი",
+  "checkout.placeOrder": "შეკვეთის განთავსება", "checkout.orderTotal": "ჯამი", "checkout.items": "პროდუქტები",
+  "checkout.cartEmptyTitle": "კალათა ცარიელია", "checkout.cartEmptyDesc": "დაათვალიერეთ კატალოგი შეკვეთის დასაწყებად.",
+  "checkout.browseCatalog": "კატალოგის დათვალიერება", "checkout.addressPlaceholder": "საწყობის / მაღაზიის მისამართი",
+  "checkout.notesPlaceholder": "სპეციალური მითითებები...",
+  "payment.cash": "ადგილზე გადახდა", "payment.card": "ბარათით გადახდა", "payment.consignment": "კონსიგნაცია",
+  "orders.orderHistory": "შეკვეთების ისტორია", "orders.orderManagement": "შეკვეთების მართვა",
+  "orders.allOrders": "ყველა შეკვეთა", "orders.noOrders": "შეკვეთები ჯერ არ არის.", "orders.noOrdersView": "ამ ხედში შეკვეთები არ არის.",
+  "orders.details": "დეტალები", "orders.cancel": "გაუქმება", "orders.deliverTo": "მისამართი",
+  "orders.window": "დრო", "orders.notes": "კომენტარი", "orders.payment": "გადახდა", "orders.from": "ვისგან",
+  "orders.retailer": "საცალო", "orders.supplier": "მომწოდებელი",
+  "catalog.title": "B2B პროდუქტების კატალოგი", "catalog.subtitle": "საბითუმო პროდუქტები ფასით და მინიმალური შეკვეთით.",
+  "catalog.searchPlaceholder": "პროდუქტების ძებნა...", "catalog.inStockOnly": "მხოლოდ მარაგში", "catalog.bulkOrder": "საბითუმო შეკვეთა",
+};
+
+const ru = {
+  "nav.catalog": "Каталог", "nav.cart": "Корзина", "nav.myOrders": "Мои заказы",
+  "nav.messages": "Сообщения", "nav.profile": "Профиль", "nav.dashboard": "Панель",
+  "nav.inventory": "Склад", "nav.orders": "Заказы", "nav.overview": "Обзор", "nav.users": "Пользователи",
+  "roles.retailer": "Розница", "roles.supplier": "Поставщик", "roles.admin": "Админ",
+  "common.signOut": "Выйти", "common.profileSettings": "Настройки профиля", "common.language": "Язык",
+  "common.product": "Товар", "common.category": "Категория", "common.status": "Статус",
+  "common.actions": "Действия", "common.total": "Итого",
+  "checkout.cartTitle": "Корзина и оформление", "checkout.deliveryDetails": "Детали доставки",
+  "checkout.deliveryAddress": "Адрес доставки", "checkout.deliveryWindow": "Время доставки",
+  "checkout.orderNotes": "Примечание к заказу", "checkout.paymentMethod": "Способ оплаты",
+  "checkout.placeOrder": "Оформить заказ", "checkout.orderTotal": "Итого", "checkout.items": "Товары",
+  "checkout.cartEmptyTitle": "Корзина пуста", "checkout.cartEmptyDesc": "Откройте каталог, чтобы начать заказ.",
+  "checkout.browseCatalog": "Открыть каталог", "checkout.addressPlaceholder": "Адрес склада / магазина",
+  "checkout.notesPlaceholder": "Особые указания...",
+  "payment.cash": "Наличные / Оплата при доставке", "payment.card": "Оплата картой",
+  "payment.consignment": "Консигнация / Постоплата",
+  "orders.orderHistory": "История заказов", "orders.orderManagement": "Управление заказами",
+  "orders.allOrders": "Все заказы", "orders.noOrders": "Заказов пока нет.", "orders.noOrdersView": "Нет заказов в этом разделе.",
+  "orders.details": "Детали", "orders.cancel": "Отмена", "orders.deliverTo": "Адрес",
+  "orders.window": "Время", "orders.notes": "Примечание", "orders.payment": "Оплата", "orders.from": "От",
+  "orders.retailer": "Розница", "orders.supplier": "Поставщик",
+  "catalog.title": "Каталог товаров B2B", "catalog.subtitle": "Оптовые товары с ценами и минимальным заказом.",
+  "catalog.searchPlaceholder": "Поиск товаров...", "catalog.inStockOnly": "Только в наличии", "catalog.bulkOrder": "Оптовый заказ",
+};
+
+export const translations = { en, ka, ru };

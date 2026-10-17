@@ -1,6 +1,7 @@
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AuthProvider, useAuth } from "@/context/AuthContext";
 import { ThemeProvider } from "@/context/ThemeContext";
+import { I18nProvider } from "@/context/I18nContext";
 import { CartProvider } from "@/context/CartContext";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
 import { AppLayout } from "@/components/AppLayout";
@@ -17,6 +18,7 @@ import Inventory from "@/pages/supplier/Inventory";
 import SupplierOrders from "@/pages/supplier/SupplierOrders";
 import AdminDashboard from "@/pages/admin/AdminDashboard";
 import AdminUsers from "@/pages/admin/AdminUsers";
+import AdminOrders from "@/pages/admin/AdminOrders";
 import Messages from "@/pages/Messages";
 import Profile from "@/pages/Profile";
 
@@ -37,6 +39,7 @@ function App() {
   return (
     <ThemeProvider>
       <AuthProvider>
+        <I18nProvider>
         <CartProvider>
           <BrowserRouter>
             <Routes>
@@ -53,6 +56,7 @@ function App() {
               <Route path="/supplier/orders" element={<Page roles={["supplier"]}><SupplierOrders /></Page>} />
 
               <Route path="/admin" element={<Page roles={["admin"]}><AdminDashboard /></Page>} />
+              <Route path="/admin/orders" element={<Page roles={["admin"]}><AdminOrders /></Page>} />
               <Route path="/admin/users" element={<Page roles={["admin"]}><AdminUsers /></Page>} />
 
               <Route path="/messages" element={<Page roles={["retailer", "supplier", "admin"]}><Messages /></Page>} />
@@ -62,6 +66,7 @@ function App() {
             <Toaster richColors position="top-right" />
           </BrowserRouter>
         </CartProvider>
+        </I18nProvider>
       </AuthProvider>
     </ThemeProvider>
   );

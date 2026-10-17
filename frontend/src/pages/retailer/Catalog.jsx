@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { api, tierPrice } from "@/lib/api";
 import { useCart } from "@/context/CartContext";
+import { useI18n } from "@/context/I18nContext";
 import { Search, Filter, Plus, Minus, Package, ShoppingCart, Layers } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -15,6 +16,7 @@ import { cn } from "@/lib/utils";
 const CATEGORIES = ["All Products", "Beverages", "Groceries", "Snacks & Sweets", "Dry Goods"];
 
 export default function Catalog() {
+  const { t } = useI18n();
   const [products, setProducts] = useState([]);
   const [category, setCategory] = useState("All Products");
   const [search, setSearch] = useState("");
@@ -35,17 +37,17 @@ export default function Catalog() {
   return (
     <div>
       <div className="mb-6">
-        <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">B2B Product Catalog</h1>
-        <p className="mt-1 text-sm text-muted-foreground">Wholesale products with tier pricing & minimum order quantities.</p>
+        <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">{t("catalog.title")}</h1>
+        <p className="mt-1 text-sm text-muted-foreground">{t("catalog.subtitle")}</p>
       </div>
 
       <div className="mb-6 flex flex-col gap-3 lg:flex-row lg:items-center">
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-          <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search products..." className="pl-9" data-testid="catalog-search" />
+          <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder={t("catalog.searchPlaceholder")} className="pl-9" data-testid="catalog-search" />
         </div>
         <Button variant={inStockOnly ? "default" : "outline"} onClick={() => setInStockOnly((v) => !v)} data-testid="filter-instock">
-          <Filter className="mr-1.5 h-4 w-4" /> In stock only
+          <Filter className="mr-1.5 h-4 w-4" /> {t("catalog.inStockOnly")}
         </Button>
       </div>
 
@@ -85,7 +87,7 @@ export default function Catalog() {
                   <span className="flex items-center gap-1 rounded-md bg-primary/10 px-2 py-1 font-mono text-[10px] font-semibold text-primary"><Layers className="h-3 w-3" />{p.tier_pricing?.length || 1} tiers</span>
                 </div>
                 <Button className="mt-4 w-full" disabled={p.stock <= 0} onClick={() => setSelected(p)} data-testid={`order-product-${p.id}`}>
-                  <ShoppingCart className="mr-1.5 h-4 w-4" /> Bulk Order
+                  <ShoppingCart className="mr-1.5 h-4 w-4" /> {t("catalog.bulkOrder")}
                 </Button>
               </div>
             </div>
