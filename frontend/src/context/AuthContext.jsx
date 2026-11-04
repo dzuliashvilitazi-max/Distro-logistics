@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useState } from "react";
 import { api } from "@/lib/api";
+import { unsubscribeFromPush } from "@/lib/push";
 
 const AuthContext = createContext(null);
 export const useAuth = () => useContext(AuthContext);
@@ -20,10 +21,20 @@ export function AuthProvider({ children }) {
   const applyAuth = (data) => {
     localStorage.setItem("distro_token", data.token);
     setUser(data.user);
+    // /auth/me returns the user enriched with entityGroup / is_retail.
+    api.get("/auth/me").then((r) => setUser(r.data)).catch(() => {});
   };
 
   const login = async (email, password) => {
     const { data } = await api.post("/auth/login", { email, password });
+    applyAuth(data);
+    return data.user;
+  };
+
+  const completeStaffPasswordReset = async (email, temporaryPassword, newPassword) => {
+    const { data } = await api.post("/auth/staff-first-password", {
+      email, temporary_password: temporaryPassword, new_password: newPassword,
+    });
     applyAuth(data);
     return data.user;
   };
@@ -45,6 +56,7 @@ export function AuthProvider({ children }) {
   };
 
   const logout = () => {
+    unsubscribeFromPush(localStorage.getItem("distro_token"));
     localStorage.removeItem("distro_token");
     setUser(null);
   };
@@ -55,7 +67,7 @@ export function AuthProvider({ children }) {
   };
 
   return (
-    <AuthContext.Provider value={{ user, loading, login, register, verifyOtp, resendOtp, logout, refreshUser, setUser }}>
+    <AuthContext.Provider value={{ user, loading, login, completeStaffPasswordReset, register, verifyOtp, resendOtp, logout, refreshUser, setUser }}>
       {children}
     </AuthContext.Provider>
   );

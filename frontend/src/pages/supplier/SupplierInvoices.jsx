@@ -1,10 +1,12 @@
 import { useEffect, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { api, formatApiError } from "@/lib/api";
 import { useI18n } from "@/context/I18nContext";
 import { StatusBadge } from "@/components/StatusBadge";
 import { CardForm } from "@/components/CardForm";
 import { FileText, Download, AlertTriangle, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "sonner";
 
 const money = (v) => `\u20be${Number(v || 0).toFixed(2)}`;
@@ -12,12 +14,23 @@ const money = (v) => `\u20be${Number(v || 0).toFixed(2)}`;
 export default function SupplierInvoices() {
   const { t } = useI18n();
   const [invoices, setInvoices] = useState(null);
+  const [filter, setFilter] = useState("all");
   const [downloading, setDownloading] = useState("");
+  const [searchParams] = useSearchParams();
+  const requestedInvoiceId = searchParams.get("invoice");
 
   const load = () => api.get("/invoices").then((r) => setInvoices(r.data)).catch(() => setInvoices([]));
   useEffect(() => { load(); }, []);
+  useEffect(() => {
+    if (!requestedInvoiceId || !invoices?.some((invoice) => invoice.id === requestedInvoiceId)) return undefined;
+    const timer = setTimeout(() => {
+      document.getElementById(`invoice-${requestedInvoiceId}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+    }, 0);
+    return () => clearTimeout(timer);
+  }, [invoices, requestedInvoiceId]);
 
   const frozen = (invoices || []).some((i) => i.effective_status === "overdue");
+  const visibleInvoices = (invoices || []).filter((invoice) => filter === "all" || invoice.effective_status === filter);
 
   const downloadPdf = async (inv) => {
     setDownloading(inv.id);
@@ -33,7 +46,13 @@ export default function SupplierInvoices() {
     }
   };
 
-  if (invoices === null) return <div className="h-64 animate-pulse rounded-xl bg-secondary" />;
+  if (invoices === null) return (
+    <div className="space-y-5" data-testid="supplier-invoices-skeleton" aria-busy="true">
+      <Skeleton className="h-12 w-64" />
+      <Skeleton className="h-10 w-full" />
+      <Skeleton className="h-64 w-full" />
+    </div>
+  );
 
   return (
     <div className="space-y-6" data-testid="supplier-invoices-page">
@@ -51,10 +70,22 @@ export default function SupplierInvoices() {
 
       <CardForm note={t("card.autoDebitNote")} />
 
-      {invoices.length === 0 ? (
+      <div className="flex flex-wrap gap-2" role="group" aria-label={t("bill.filter.all")} data-testid="supplier-invoice-status-filters">
+        {["all", "pending", "overdue", "paid"].map((value) => (
+          <Button
+            key={value} type="button" size="sm" variant={filter === value ? "default" : "outline"}
+            aria-pressed={filter === value} onClick={() => setFilter(value)}
+            data-testid={`supplier-invoice-filter-${value}`}
+          >
+            {t(`bill.filter.${value}`)}
+          </Button>
+        ))}
+      </div>
+
+      {visibleInvoices.length === 0 ? (
         <div className="rounded-xl border border-dashed border-border py-16 text-center text-muted-foreground" data-testid="no-invoices">
           <FileText className="mx-auto mb-3 h-10 w-10 opacity-40" />
-          {t("bill.noInvoices")}
+          {invoices.length === 0 ? t("bill.noInvoices") : t("bill.noInvoicesFiltered")}
         </div>
       ) : (
         <div className="overflow-x-auto rounded-xl border border-border">
@@ -62,6 +93,7 @@ export default function SupplierInvoices() {
             <thead className="bg-secondary/60 text-left text-xs uppercase tracking-wider text-muted-foreground">
               <tr>
                 <th className="px-4 py-3">{t("bill.invoiceNo")}</th>
+                <th className="px-4 py-3">{t("bill.paymentReference")}</th>
                 <th className="px-4 py-3">{t("bill.period")}</th>
                 <th className="px-4 py-3">{t("bill.issued")}</th>
                 <th className="px-4 py-3">{t("bill.due")}</th>
@@ -71,9 +103,10 @@ export default function SupplierInvoices() {
               </tr>
             </thead>
             <tbody>
-              {invoices.map((inv) => (
-                <tr key={inv.id} className="border-t border-border" data-testid={`invoice-row-${inv.invoice_no}`}>
+              {visibleInvoices.map((inv) => (
+                <tr key={inv.id} id={`invoice-${inv.id}`} className="border-t border-border" data-testid={`invoice-row-${inv.invoice_no}`}>
                   <td className="px-4 py-3 font-mono font-semibold">{inv.invoice_no}</td>
+                  <td className="px-4 py-3 font-mono text-xs">{inv.payment_reference || "—"}</td>
                   <td className="px-4 py-3">{inv.period_label}</td>
                   <td className="px-4 py-3 text-muted-foreground">{inv.issue_label}</td>
                   <td className="px-4 py-3 text-muted-foreground">{inv.due_label}</td>

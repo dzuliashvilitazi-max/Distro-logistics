@@ -2,24 +2,21 @@ import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
 import { useI18n } from "@/context/I18nContext";
-import { formatApiError } from "@/lib/api";
+import { requestErrorMessage } from "@/lib/api";
 import { PublicLangSwitcher } from "@/pages/Landing";
 import { Truck, Store, Warehouse, Loader2, ArrowRight, Mail } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
+import { BusinessSectorCheckboxes } from "@/components/BusinessSectorCheckboxes";
+import { CityMultiSelect } from "@/components/CityMultiSelect";
+import { GEORGIAN_BANKS, normalizeIban, isValidGeIban } from "@/lib/banks";
 import { cn } from "@/lib/utils";
-
-const DEMO = [
-  { email: "cornerstore@distro.com", role: "retailer", label: "Corner Store Market" },
-  { email: "metro@distro.com", role: "supplier", label: "Metro Bev Distributors" },
-  { email: "mgv67mk2j5@privaterelay.appleid.com", role: "admin", label: "Platform Admin", pw: "Admin@123" },
-];
 
 export default function Auth({ mode }) {
   const isRegister = mode === "register";
-  const { login, register, verifyOtp, resendOtp } = useAuth();
+  const { login, register, verifyOtp, resendOtp, completeStaffPasswordReset } = useAuth();
   const { t } = useI18n();
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
@@ -28,17 +25,23 @@ export default function Auth({ mode }) {
   const [verifyEmail, setVerifyEmail] = useState(null);
   const [code, setCode] = useState("");
   const [verifying, setVerifying] = useState(false);
-  const [form, setForm] = useState({ email: "", password: "", name: "", business_name: "", address: "", city: "", phone: "", category: "", identification_number: "", establishment_type: "grocery", card_name: "", card_number: "", card_expiry: "", bank_name: "", iban: "" });
+  const [mustChangePassword, setMustChangePassword] = useState(false);
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [form, setForm] = useState({ email: "", password: "", name: "", business_name: "", address: "", city: "", cities: [], phone: "", category: "", category_ids: [], business_sectors: [], identification_number: "", vat_registered: null, establishment_type: "grocery", establishment_type_other: "", card_name: "", card_number: "", card_expiry: "", bank_name: "", iban: "" });
 
   const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
 
   const submit = async (e) => {
     e.preventDefault();
     if (isRegister && !agreed) { toast.error(t("auth.mustAgree")); return; }
+    if (isRegister && form.vat_registered === null) { toast.error(t("vat.required")); return; }
+    if (isRegister && role === "supplier" && !isValidGeIban(form.iban)) { toast.error("IBAN: GE + 20 სიმბოლო (მაგ. GE29TB1234567890123456)"); return; }
     setLoading(true);
     try {
       if (isRegister) {
-        const res = await register({ ...form, role, accept_terms: true });
+        const extra = role === "supplier" ? { card_name: "", card_number: "", card_expiry: "" } : {};
+        const res = await register({ ...form, ...extra, role, accept_terms: true });
         if (res.verification_required) {
           setVerifyEmail(res.email);
           toast.success(`${t("verify.sentTo")} ${res.email}`);
@@ -47,8 +50,18 @@ export default function Auth({ mode }) {
           navigate("/");
         }
       } else {
-        const user = await login(form.email, form.password);
-        toast.success(`${t("auth.welcomeBack")}, ${user.business_name}`);
+        let user;
+        if (mustChangePassword) {
+          if (newPassword !== confirmPassword) {
+            toast.error(t("auth.passwordMismatch"));
+            setLoading(false);
+            return;
+          }
+          user = await completeStaffPasswordReset(form.email, form.password, newPassword);
+        } else {
+          user = await login(form.email, form.password);
+        }
+        toast.success(`${t("auth.welcomeBack")}, ${user?.business_name}`);
         navigate("/");
       }
     } catch (err) {
@@ -56,8 +69,12 @@ export default function Auth({ mode }) {
       if (detail === "EMAIL_NOT_VERIFIED") {
         setVerifyEmail(form.email);
         toast.message(t("verify.notVerified"));
+      } else if (detail?.code === "PASSWORD_RESET_REQUIRED") {
+        setMustChangePassword(true);
+        setNewPassword("");
+        setConfirmPassword("");
       } else {
-        toast.error(formatApiError(detail) || err.message);
+        toast.error(requestErrorMessage(err));
       }
     } finally {
       setLoading(false);
@@ -72,7 +89,7 @@ export default function Auth({ mode }) {
       toast.success(t("verify.success"));
       navigate("/");
     } catch (err) {
-      toast.error(formatApiError(err.response?.data?.detail));
+      toast.error(requestErrorMessage(err));
     } finally {
       setVerifying(false);
     }
@@ -80,18 +97,7 @@ export default function Auth({ mode }) {
 
   const doResend = async () => {
     try { await resendOtp(verifyEmail); toast.success(t("verify.resent")); }
-    catch (err) { toast.error(formatApiError(err.response?.data?.detail)); }
-  };
-
-  const quickLogin = async (d) => {
-    setLoading(true);
-    try {
-      const user = await login(d.email, d.pw || "Password@123");
-      toast.success(`${t("auth.signedInAs")} ${user.business_name}`);
-      navigate("/");
-    } catch (err) {
-      toast.error(formatApiError(err.response?.data?.detail));
-    } finally { setLoading(false); }
+    catch (err) { toast.error(requestErrorMessage(err)); }
   };
 
   if (verifyEmail) {
@@ -133,7 +139,7 @@ export default function Auth({ mode }) {
         <div className="w-full max-w-md">
           <div className="mb-4 flex justify-end"><PublicLangSwitcher /></div>
           <h1 className="text-3xl font-extrabold tracking-tight">{isRegister ? t("auth.createYourAccount") : t("auth.signIn")}</h1>
-          <p className="mt-2 text-sm text-muted-foreground">{isRegister ? t("auth.registerSubtitle") : t("auth.signInSubtitle")}</p>
+          <p className="mt-2 text-sm text-muted-foreground">{mustChangePassword ? t("auth.temporaryPasswordInstruction") : isRegister ? t("auth.registerSubtitle") : t("auth.signInSubtitle")}</p>
 
           <form onSubmit={submit} className="mt-8 space-y-4">
             {isRegister && (
@@ -155,16 +161,38 @@ export default function Auth({ mode }) {
                 <div><Label htmlFor="address">{t("auth.businessAddress")}</Label><Input id="address" value={form.address} onChange={set("address")} className="mt-1.5" data-testid="register-address" /></div>
                 <div><Label htmlFor="phone">{t("auth.phone")}</Label><Input id="phone" value={form.phone} onChange={set("phone")} className="mt-1.5" data-testid="register-phone" placeholder="+995 5XX XXX XXX" /></div>
                 <div className="grid grid-cols-2 gap-3">
-                  <div><Label htmlFor="city">{t("reg.city")}</Label><Input id="city" value={form.city} onChange={set("city")} className="mt-1.5" data-testid="register-city" placeholder="Tbilisi" /></div>
+                  <div><Label>{t("reg.city")}</Label>
+                    <div className="mt-1.5"><CityMultiSelect single value={form.city ? [form.city] : []} onChange={([city]) => setForm((f) => ({ ...f, city: city || "" }))} idPrefix="register-city" placeholder="—" /></div></div>
                   <div><Label htmlFor="idn">{role === "supplier" ? t("reg.idSupplier") : t("reg.identification")}</Label><Input id="idn" required value={form.identification_number} onChange={set("identification_number")} className="mt-1.5" data-testid="register-identification" placeholder="ს/კ" /></div>
                 </div>
+                {role === "supplier" && (
+                  <div><Label>{t("prof.serviceCities")}</Label>
+                    <div className="mt-1.5"><CityMultiSelect value={form.cities} onChange={(cities) => setForm((f) => ({ ...f, cities }))} idPrefix="register-cities" /></div></div>
+                )}
+                <fieldset className="rounded-lg border border-border p-3" data-testid="register-vat">
+                  <legend className="px-1 text-sm font-medium">{t("vat.label")} *</legend>
+                  <div className="flex gap-6">
+                    {[[true, "vat.yes"], [false, "vat.no"]].map(([value, key]) => (
+                      <label key={key} className="flex cursor-pointer items-center gap-2 text-sm">
+                        <input type="radio" name="vat_registered" required checked={form.vat_registered === value} onChange={() => setForm((f) => ({ ...f, vat_registered: value }))} data-testid={`register-vat-${value ? "yes" : "no"}`} />
+                        {t(key)}
+                      </label>
+                    ))}
+                  </div>
+                </fieldset>
                 {role === "retailer" && (
                   <>
                     <div><Label htmlFor="est">{t("reg.establishmentType")}</Label>
                       <select id="est" value={form.establishment_type} onChange={set("establishment_type")} data-testid="register-establishment" className="mt-1.5 h-10 w-full rounded-md border border-input bg-background px-3 text-sm">
-                        {["grocery", "zoo", "carwash", "pharmacy", "horeca", "other"].map((e) => <option key={e} value={e}>{t(`est.${e}`)}</option>)}
+                        {["grocery", "zoo", "household", "laundry", "restaurant_cafe_bar", "hotel_hostel", "office_company", "other"].map((e) => <option key={e} value={e}>{t(`est.${e}`)}</option>)}
                       </select>
                     </div>
+                    {form.establishment_type === "other" && (
+                      <div>
+                        <Label htmlFor="establishment-type-other">{t("reg.establishmentTypeOther")}</Label>
+                        <Input id="establishment-type-other" value={form.establishment_type_other} onChange={set("establishment_type_other")} required data-testid="register-establishment-other" />
+                      </div>
+                    )}
                     <div className="rounded-lg border border-border p-3">
                       <p className="mb-2 text-sm font-semibold">{t("reg.cardSection")}</p>
                       <div className="space-y-2">
@@ -180,19 +208,30 @@ export default function Auth({ mode }) {
                   </>
                 )}
                 {role === "supplier" && (
-                  <div className="rounded-lg border border-border p-3">
-                    <p className="mb-2 text-sm font-semibold">{t("reg.bankSection")}</p>
-                    <div className="space-y-2">
-                      <Input value={form.category} onChange={set("category")} placeholder={t("auth.category")} data-testid="register-category" />
-                      <Input value={form.bank_name} onChange={set("bank_name")} placeholder={t("reg.bankName")} data-testid="register-bank-name" />
-                      <Input value={form.iban} onChange={set("iban")} placeholder={t("reg.iban")} data-testid="register-iban" />
+                  <>
+                    <BusinessSectorCheckboxes value={form.business_sectors} onChange={(sectors) => setForm((f) => ({ ...f, business_sectors: sectors }))} idPrefix="reg-sector" />
+                    <div className="rounded-lg border border-border p-3">
+                      <p className="mb-2 text-sm font-semibold">{t("reg.bankSection")}</p>
+                      <div className="space-y-2">
+                        <select value={form.bank_name} onChange={set("bank_name")} className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm" data-testid="register-bank-name">
+                          <option value="">{t("reg.bankName")}</option>
+                          {GEORGIAN_BANKS.map((b) => <option key={b} value={b}>{b}</option>)}
+                        </select>
+                        <Input value={form.iban} onChange={(e) => setForm((f) => ({ ...f, iban: normalizeIban(e.target.value) }))} placeholder={t("reg.iban")} maxLength={22} data-testid="register-iban" />
+                      </div>
                     </div>
-                  </div>
+                  </>
                 )}
               </>
             )}
             <div><Label htmlFor="email">{t("auth.email")}</Label><Input id="email" type="email" required value={form.email} onChange={set("email")} className="mt-1.5" data-testid="auth-email" placeholder="you@business.com" /></div>
             <div><Label htmlFor="password">{t("auth.password")}</Label><Input id="password" type="password" required value={form.password} onChange={set("password")} className="mt-1.5" data-testid="auth-password" placeholder="••••••••" /></div>
+            {mustChangePassword && (
+              <>
+                <div><Label htmlFor="new-password">{t("auth.newPassword")}</Label><Input id="new-password" type="password" required minLength={8} maxLength={72} value={newPassword} onChange={(event) => setNewPassword(event.target.value)} className="mt-1.5" data-testid="staff-new-password" /></div>
+                <div><Label htmlFor="confirm-password">{t("auth.confirmPassword")}</Label><Input id="confirm-password" type="password" required minLength={8} maxLength={72} value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} className="mt-1.5" data-testid="staff-confirm-password" /></div>
+              </>
+            )}
             {isRegister && (
               <label className="flex items-start gap-2.5 text-sm" data-testid="register-terms-label">
                 <input type="checkbox" checked={agreed} onChange={(e) => setAgreed(e.target.checked)} data-testid="register-terms-checkbox" className="mt-0.5 h-4 w-4 shrink-0 rounded border-input accent-primary" />
@@ -209,20 +248,9 @@ export default function Auth({ mode }) {
             </Button>
           </form>
 
-          {!isRegister && (
-            <div className="mt-6">
-              <p className="font-mono text-xs uppercase tracking-wider text-muted-foreground">{t("auth.quickDemo")}</p>
-              <div className="mt-2 space-y-2">
-                {DEMO.map((d) => (
-                  <button key={d.email} onClick={() => quickLogin(d)} disabled={loading} data-testid={`demo-login-${d.role}`}
-                    className="flex w-full items-center justify-between rounded-lg border border-border bg-card px-3 py-2.5 text-left transition-colors duration-200 hover:border-primary/50 hover:bg-secondary">
-                    <span><span className="text-sm font-semibold">{d.label}</span><span className="ml-2 font-mono text-[11px] text-muted-foreground">{d.email}</span></span>
-                    <span className="rounded-full border border-primary/30 bg-primary/10 px-2 py-0.5 font-mono text-[10px] font-semibold text-primary">{t(`roles.${d.role}`)}</span>
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
+          {!isRegister && <div className="mt-3 text-right">
+            <Link to="/forgot-password" className="text-sm font-semibold text-primary hover:underline" data-testid="forgot-password-link">{t("passwordReset.forgotLink")}</Link>
+          </div>}
 
           <p className="mt-6 text-center text-sm text-muted-foreground">
             {isRegister ? t("auth.alreadyHave") : t("auth.newToDistro")}

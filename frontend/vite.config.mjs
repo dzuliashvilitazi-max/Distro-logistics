@@ -1,70 +1,19 @@
 import path from "node:path";
-import { createRequire } from "node:module";
 import { defineConfig, loadEnv, transformWithOxc } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
-import { visualEdits } from "@emergentbase/visual-edits/vite";
 
-const require = createRequire(import.meta.url);
-
-// Supervisor exports DISABLE_HOT_RELOAD=true when the platform sets ENABLE_RELOAD=false.
 const hotReloadDisabled = process.env.DISABLE_HOT_RELOAD === "true";
 
-// Visual Edits (x-* JSX tagging, overlay, /edit-file endpoint) is dev-server-only by
-// default (apply: serve); escape hatch mirrors DISABLE_HOT_RELOAD.
-const visualEditsDisabled = process.env.DISABLE_VISUAL_EDITS === "true";
-
-// Branded error overlay (build + runtime errors); escape hatch mirrors the two above.
-const emergentOverlayDisabled = process.env.DISABLE_EMERGENT_OVERLAY === "true";
-
-// Fails open: a broken overlay package must degrade to "no overlay" (Vite's own overlay
-// takes over), never to "no dev server". Never let a preview aid take the app down.
-async function loadEmergentOverlay() {
-  if (emergentOverlayDisabled) return null;
-  try {
-    const mod = await import("@emergentbase/overlay/vite");
-    return mod.emergentOverlay();
-  } catch (e) {
-    console.warn("[emergent-overlay] plugin failed to load; using Vite's overlay instead:", e instanceof Error ? e.message : e);
-    return null;
-  }
-}
-
-// CRA parity: JSX lives in .js files (App.js, index.js). Vite 8's native transform picks
-// the language from the extension and the visual-edits plugin only tags .jsx/.tsx, so .js
-// under src/ is handled here: stamp the x-* visual-edit metadata first (dev only, same
-// babel plugin the package runs on .jsx), then compile the JSX away with oxc.
-function jsxInJs({ tagForVisualEdits }) {
-  let tag = null;
+// CRA parity: JSX lives in .js files (App.js, index.js); Vite's native transform needs to be told.
+function jsxInJs() {
   return {
     name: "cra-jsx-in-js",
     enforce: "pre",
     async transform(code, id) {
       const [file] = id.split("?");
       if (!/\/src\/.*\.js$/.test(file) || file.includes("/node_modules/")) return null;
-      let source = code;
-      let inMap;
-      if (tagForVisualEdits) {
-        if (!tag) {
-          const { transformSync } = require("@babel/core");
-          const plugin = require("@emergentbase/visual-edits/babel-plugin").default;
-          tag = (src, filename) =>
-            transformSync(src, {
-              filename,
-              plugins: [plugin],
-              parserOpts: { plugins: ["jsx", "decorators-legacy", "classProperties"] },
-              // Keep the map so oxc chains it: overlay/devtools must point at the authored lines.
-              sourceMaps: true,
-              configFile: false,
-              babelrc: false,
-              presets: [],
-            });
-        }
-        const tagged = tag(source, file);
-        source = tagged.code;
-        inMap = tagged.map;
-      }
-      return transformWithOxc(source, file, { lang: "jsx", jsx: { runtime: "automatic" } }, inMap);
+      return transformWithOxc(code, file, { lang: "jsx", jsx: { runtime: "automatic" } });
     },
   };
 }
@@ -78,17 +27,11 @@ if (!hotReloadDisabled) {
 // https://vite.dev/config/
 export default defineConfig(async ({ mode, command }) => {
   const env = loadEnv(mode, __dirname, ["REACT_APP_", "VITE_"]);
-  const emergentOverlay = await loadEmergentOverlay();
   return {
     plugins: [
-      // Visual-edit tagging is dev-server-only, matching the package's own apply: serve.
-      jsxInJs({ tagForVisualEdits: command === "serve" && !visualEditsDisabled }),
+      jsxInJs(),
       react(),
       tailwindcss(),
-      ...(visualEditsDisabled ? [] : [visualEdits()]),
-      // No isServe guard: this factory takes no ConfigEnv arg, so build purity here rests
-      // on the package's own `apply: "serve"`.
-      ...(emergentOverlay ? [emergentOverlay] : []),
     ],
     // CRA parity: REACT_APP_* stays the frontend env convention (frontend/.env).
     envPrefix: ["VITE_", "REACT_APP_"],
@@ -177,12 +120,8 @@ export default defineConfig(async ({ mode, command }) => {
       host: true,
       port: 3000,
       allowedHosts: true,
-      // Preview probe + /edit-file are cross-origin from the Emergent tab; Vite defaults to localhost-only CORS.
       cors: true,
-      // No hmr.clientPort override: Vite infers the WS target from window.location, which
-      // is correct on both localhost:3000 (smoke) and the https/:443 preview proxy.
-      // Build-error rendering: emergent-overlay when it loaded, else Vite's own overlay.
-      hmr: hotReloadDisabled ? false : { overlay: !emergentOverlay },
+      hmr: hotReloadDisabled ? false : undefined,
       watch: hotReloadDisabled ? null : { usePolling: true, interval: 300 },
     },
   };

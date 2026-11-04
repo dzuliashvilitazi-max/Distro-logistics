@@ -6,6 +6,7 @@ import { useAuth } from "@/context/AuthContext";
 import { useI18n } from "@/context/I18nContext";
 import { LANGUAGES } from "@/lib/i18n";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import logo from '@/assets/logo_distro.png';
 
 export function PublicLangSwitcher() {
   const { lang, setLang } = useI18n();
@@ -40,7 +41,7 @@ export default function Landing() {
       <header className="sticky top-0 z-40 border-b border-border bg-background/80 backdrop-blur-md">
         <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-3.5 sm:px-6 lg:px-8">
           <div className="flex items-center gap-2.5">
-            <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary"><Truck className="h-5 w-5 text-primary-foreground" /></div>
+            <img src={logo} alt="Distro Logistics" className="h-10 w-10 object-contain" />
             <p className="text-lg font-extrabold tracking-tight">Distro<span className="text-primary">Logistics</span></p>
           </div>
           <div className="flex items-center gap-2">
@@ -69,18 +70,16 @@ export default function Landing() {
             <p className="mt-6 max-w-lg text-base leading-relaxed text-muted-foreground sm:text-lg">{t("land.heroSubtitle")}</p>
             <div className="mt-8 flex flex-wrap gap-3">
               <Link to="/register"><Button size="lg" className="h-12 px-6 text-base" data-testid="hero-start-btn">{t("land.startDistributing")} <ArrowRight className="ml-1.5 h-4.5 w-4.5" /></Button></Link>
-              <Link to="/login"><Button size="lg" variant="outline" className="h-12 px-6 text-base" data-testid="hero-demo-btn">{t("land.viewDemo")}</Button></Link>
             </div>
-            <div className="mt-10 flex gap-8">
+            <div className="mt-10 grid max-w-lg grid-cols-3 gap-4 border-t border-border pt-6 sm:gap-8">
               {[["3", "land.statRoles"], ["8+", "land.statProducts"], ["5", "land.statStates"]].map(([n, l]) => (
-                <div key={l}><p className="text-3xl font-extrabold text-foreground">{n}</p><p className="font-mono text-xs uppercase tracking-wider text-muted-foreground">{t(l)}</p></div>
+                <div key={l} className="min-w-0"><p className="text-3xl font-extrabold leading-none text-foreground">{n}</p><p className="mt-2 break-words font-mono text-[11px] uppercase leading-snug tracking-wider text-muted-foreground sm:text-xs">{t(l)}</p></div>
               ))}
             </div>
           </motion.div>
-          <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} transition={{ duration: 0.6, delay: 0.15 }} className="relative">
-            <div className="overflow-hidden rounded-2xl border border-border shadow-2xl">
-              <img src="https://images.unsplash.com/photo-1553413077-190dd305871c?crop=entropy&cs=srgb&fm=jpg&q=85&w=1000" alt="Warehouse logistics" className="h-full w-full object-cover" />
-            </div>
+          <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} transition={{ duration: 0.6, delay: 0.15 }} className="relative flex items-center justify-center">
+            <div className="absolute inset-0 m-auto h-80 w-80 rounded-full bg-primary/15 blur-3xl sm:h-96 sm:w-96" aria-hidden="true" />
+            <img src={logo} alt="Distro Logistics" className="relative h-auto max-h-[28rem] w-full max-w-xl bg-transparent object-contain drop-shadow-2xl" />
           </motion.div>
         </div>
       </section>

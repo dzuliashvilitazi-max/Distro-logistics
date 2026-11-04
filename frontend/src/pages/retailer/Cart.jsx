@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useCart } from "@/context/CartContext";
 import { useAuth } from "@/context/AuthContext";
+import { useStoreBranch } from "@/context/StoreBranchContext";
 import { useI18n } from "@/context/I18nContext";
 import { api, tierPrice, formatApiError } from "@/lib/api";
 import { PAYMENT_METHODS } from "@/lib/i18n";
@@ -13,20 +14,35 @@ import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
-const PAY_ICON = { cash: Banknote, card: CreditCard, consignment: FileClock };
+const PAY_ICON = { cash: Banknote, card: CreditCard, consignment: FileClock, bank_transfer: Banknote };
 
 export default function Cart() {
   const { items, updateQty, removeItem, clear } = useCart();
   const { user } = useAuth();
+  const { activeBranch } = useStoreBranch();
   const { t } = useI18n();
   const navigate = useNavigate();
   const [address, setAddress] = useState(user.address || "");
   const [notes, setNotes] = useState("");
-  const [window, setWindow] = useState("9am - 12pm");
+  const [deliveryWindow, setDeliveryWindow] = useState("9am - 12pm");
   const [payment, setPayment] = useState(user.card_verified ? "online" : "cash");
+  const [cards, setCards] = useState([]);
+  const [cardId, setCardId] = useState(null);
+  const [recentOrders, setRecentOrders] = useState([]);
   const [settings, setSettings] = useState(null);
   const [placing, setPlacing] = useState(false);
   useEffect(() => { api.get("/settings").then((r) => setSettings(r.data)); }, []);
+  useEffect(() => {
+    api.get("/payments/cards").then((r) => {
+      const list = r.data.cards || [];
+      setCards(list);
+      setCardId((cur) => (list.some((c) => c.id === cur) ? cur : list[0]?.id || null));
+      if (!list.length) setPayment((p) => (p === "online" ? "cash" : p));
+    }).catch(() => {});
+  }, []);
+  useEffect(() => {
+    if (activeBranch?.address) setAddress(activeBranch.address);
+  }, [activeBranch?.id]);
 
   const lines = useMemo(() => items.map((i) => ({ ...i, unit: tierPrice(i, i.quantity), subtotal: tierPrice(i, i.quantity) * i.quantity })), [items]);
   const total = lines.reduce((s, l) => s + l.subtotal, 0);
@@ -37,18 +53,73 @@ export default function Cart() {
     for (const l of lines) if (l.quantity < l.moq) { toast.error(`${l.name} — ${t("checkout.belowMoq")} (${l.moq})`); return; }
     setPlacing(true);
     try {
+      const { data: connections } = await api.get("/connections/mine");
+      const approvedDistributors = new Set(
+        connections.filter((connection) => connection.status === "APPROVED")
+          .map((connection) => connection.distributor_id),
+      );
+      if (lines.some((line) => !approvedDistributors.has(line.supplier_id))) {
+        toast.error(t("checkout.connectionRequired"));
+        navigate("/catalog");
+        return;
+      }
       const payload = {
         items: lines.map((l) => ({ product_id: l.product_id, name: l.name, image: l.image, supplier_id: l.supplier_id, quantity: l.quantity, unit_price: l.unit })),
-        delivery_address: address, notes, delivery_window: window, payment_method: payment,
+        delivery_address: address, notes, delivery_window: deliveryWindow, payment_method: payment,
+        branch_id: activeBranch?.id,
+        ...(payment === "online" ? { card_id: cardId } : {}),
       };
       const { data } = await api.post("/orders", payload);
       clear();
-      toast.success(`${data.orders.length} ${t("checkout.orderPlaced")}`);
+      if (payment === "bank_transfer") {
+        setRecentOrders(data.orders || []);
+        const refs = data.orders.map((order) => order.payment_reference).filter(Boolean).join(", ");
+        toast.success(`${t("checkout.bankTransferPlaced")}${refs ? ` (${refs})` : ""}`);
+        return;
+      } else {
+        toast.success(`${data.orders.length} ${t("checkout.orderPlaced")}`);
+      }
       navigate("/orders");
     } catch (err) {
-      toast.error(formatApiError(err.response?.data?.detail));
+      const detail = formatApiError(err.response?.data?.detail);
+      if (/bank account missing/i.test(detail)) toast.error(detail, { duration: 10000 });
+      else toast.error(detail);
     } finally { setPlacing(false); }
   };
+
+  const downloadInvoice = async (orderId, orderNo) => {
+    try {
+      const response = await api.get(`/orders/${orderId}/invoice.pdf`, { responseType: "blob" });
+      const url = URL.createObjectURL(new Blob([response.data], { type: "application/pdf" }));
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `${orderNo}-invoice.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      toast.error(formatApiError(err.response?.data?.detail));
+    }
+  };
+
+  if (items.length === 0 && recentOrders.length > 0)
+    return (
+      <div className="rounded-xl border border-border bg-card p-6 text-center">
+        <h2 className="text-xl font-semibold">{t("checkout.bankTransferPlaced")}</h2>
+        <p className="mt-2 text-sm text-muted-foreground">
+          {recentOrders.map((order) => order.payment_reference).filter(Boolean).join(", ")}
+        </p>
+        <div className="mt-4 flex flex-wrap justify-center gap-2">
+          {recentOrders.map((order) => (
+            <Button key={order.id} variant="outline" onClick={() => downloadInvoice(order.id, order.order_no)}>
+              <Banknote className="mr-2 h-4 w-4" />{order.order_no}
+            </Button>
+          ))}
+        </div>
+        <Button className="mt-5" onClick={() => navigate("/orders")}>{t("orders.orderHistory")}</Button>
+      </div>
+    );
 
   if (items.length === 0)
     return (
@@ -67,7 +138,7 @@ export default function Cart() {
         <div className="space-y-3 lg:col-span-7">
           {lines.map((l) => (
             <div key={l.product_id} data-testid={`cart-item-${l.product_id}`} className="flex gap-4 rounded-xl border border-border bg-card p-4">
-              <img src={l.image} alt={l.name} className="h-20 w-20 shrink-0 rounded-lg border border-border object-cover" />
+              {l.image ? <img src={l.image} alt={l.name} className="h-20 w-20 shrink-0 rounded-lg border border-border object-cover" /> : <div className="h-20 w-20 shrink-0 rounded-lg border border-border bg-secondary" />}
               <div className="min-w-0 flex-1">
                 <p className="font-mono text-[11px] uppercase tracking-wider text-muted-foreground">{l.supplier_name}</p>
                 <h3 className="truncate text-sm font-semibold">{l.name}</h3>
@@ -89,24 +160,28 @@ export default function Cart() {
         <div className="lg:col-span-5">
           <div className="sticky top-20 space-y-4 rounded-xl border border-border bg-card p-5">
             <h3 className="text-lg font-semibold">{t("checkout.deliveryDetails")}</h3>
+            {activeBranch && <p className="text-xs text-muted-foreground">{t("branch.current")}: <span className="font-semibold text-foreground">{activeBranch.name}</span></p>}
             <div><Label htmlFor="addr">{t("checkout.deliveryAddress")}</Label><Textarea id="addr" value={address} onChange={(e) => setAddress(e.target.value)} className="mt-1.5" rows={2} data-testid="checkout-address" placeholder={t("checkout.addressPlaceholder")} /></div>
             <div><Label htmlFor="window">{t("checkout.deliveryWindow")}</Label>
-              <select id="window" value={window} onChange={(e) => setWindow(e.target.value)} data-testid="checkout-window" className="mt-1.5 h-10 w-full rounded-md border border-input bg-background px-3 text-sm">
+              <select id="window" value={deliveryWindow} onChange={(e) => setDeliveryWindow(e.target.value)} data-testid="checkout-window" className="mt-1.5 h-10 w-full rounded-md border border-input bg-background px-3 text-sm">
                 {["9am - 12pm", "12pm - 3pm", "3pm - 6pm", "After hours"].map((w) => <option key={w}>{w}</option>)}
               </select>
             </div>
             <div>
               <Label>{t("checkout.paymentMethod")}</Label>
               <div className="mt-1.5 space-y-2" data-testid="payment-method-group">
-                {user.card_verified && (
-                  <button type="button" onClick={() => setPayment("online")} data-testid="payment-option-online"
-                    className={cn("flex w-full items-center gap-3 rounded-lg border-2 px-3 py-2.5 text-left transition-colors duration-200", payment === "online" ? "border-primary bg-primary/5" : "border-border hover:border-primary/40")}>
-                    <CreditCard className={cn("h-5 w-5 shrink-0", payment === "online" ? "text-primary" : "text-muted-foreground")} />
-                    <span className="text-sm font-medium">{t("pay.online")} · {(user.card_brand || "card").toUpperCase()} ••••{user.card_last4}</span>
-                    <span className={cn("ml-auto h-4 w-4 rounded-full border-2", payment === "online" ? "border-primary bg-primary" : "border-muted-foreground")} />
-                  </button>
-                )}
-                {PAYMENT_METHODS.map((m) => {
+                {cards.map((c) => {
+                  const active = payment === "online" && cardId === c.id;
+                  return (
+                    <button type="button" key={c.id} onClick={() => { setPayment("online"); setCardId(c.id); }} data-testid={`payment-option-card-${c.id}`}
+                      className={cn("flex w-full items-center gap-3 rounded-lg border-2 px-3 py-2.5 text-left transition-colors duration-200", active ? "border-primary bg-primary/5" : "border-border hover:border-primary/40")}>
+                      <CreditCard className={cn("h-5 w-5 shrink-0", active ? "text-primary" : "text-muted-foreground")} />
+                      <span className="text-sm font-medium">გადაიხადე ბარათით - {(c.brand || "card").toUpperCase()} ••••{c.last4}{c.exp ? ` · ${c.exp}` : ""}</span>
+                      <span className={cn("ml-auto h-4 w-4 rounded-full border-2", active ? "border-primary bg-primary" : "border-muted-foreground")} />
+                    </button>
+                  );
+                })}
+                {PAYMENT_METHODS.filter((m) => m !== "card").map((m) => {
                   const Icon = PAY_ICON[m];
                   const active = payment === m;
                   return (

@@ -29,6 +29,21 @@ export function CartProvider({ children }) {
     persist(next);
   };
 
+  const addItems = (products) => {
+    let next = [...items];
+    for (const p of products) {
+      const fresh = {
+        product_id: p.id, name: p.name, image: p.image,
+        supplier_id: p.supplier_id, supplier_name: p.supplier_name,
+        moq: p.moq, tier_pricing: p.tier_pricing, price_per_unit: p.price_per_unit,
+      };
+      const idx = next.findIndex((i) => i.product_id === p.id);
+      if (idx >= 0) next[idx] = { ...next[idx], ...fresh, quantity: next[idx].quantity + p.quantity };
+      else next.push({ ...fresh, quantity: p.quantity });
+    }
+    persist(next);
+  };
+
   const updateQty = (product_id, quantity) => {
     persist(items.map((i) => i.product_id === product_id ? { ...i, quantity } : i));
   };
@@ -37,7 +52,7 @@ export function CartProvider({ children }) {
   const count = items.reduce((s, i) => s + i.quantity, 0);
 
   return (
-    <CartContext.Provider value={{ items, addItem, updateQty, removeItem, clear, count }}>
+    <CartContext.Provider value={{ items, addItem, addItems, updateQty, removeItem, clear, count }}>
       {children}
     </CartContext.Provider>
   );

@@ -1,5 +1,8 @@
 # See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
 
+# User-uploaded logos
+backend/uploads/
+
 # IDE and editors
 .idea/
 .vscode/
@@ -45,6 +48,11 @@ dump.rdb
 # System files
 .DS_Store
 *.pem
+
+# Secrets
+.env
+.env.*
+!.env.example
 
 # Python
 __pycache__/

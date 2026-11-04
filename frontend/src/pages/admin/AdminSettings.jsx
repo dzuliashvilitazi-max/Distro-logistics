@@ -5,6 +5,7 @@ import { Plus, Save, Percent, Tags, Building2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -16,7 +17,7 @@ export default function AdminSettings() {
   const [newCat, setNewCat] = useState("");
 
   useEffect(() => {
-    api.get("/settings").then((r) => setS(r.data));
+    api.get("/admin/settings").then((r) => setS(r.data));
     api.get("/categories").then((r) => setCats(r.data));
   }, []);
 
@@ -25,7 +26,7 @@ export default function AdminSettings() {
     catch (e) { toast.error(formatApiError(e.response?.data?.detail)); }
   };
   const saveIssuer = async () => {
-    try { const { data } = await api.put("/admin/settings", { fee_type: s.fee_type, fee_value: parseFloat(s.fee_value) || 0, fee_payer: s.fee_payer, issuer_name: s.issuer_name || "", issuer_tax_id: s.issuer_tax_id || "", issuer_iban: s.issuer_iban || "" }); setS(data); toast.success(t("bill.issuerSaved")); }
+    try { const { data } = await api.put("/admin/settings", { fee_type: s.fee_type, fee_value: parseFloat(s.fee_value) || 0, fee_payer: s.fee_payer, issuer_name: s.issuer_name || "", issuer_tax_id: s.issuer_tax_id || "", issuer_iban: s.issuer_iban || "", payment_provider: s.payment_provider || "tbc", payment_client_id: s.payment_client_id || "", payment_secret: s.payment_secret || "", payment_split_enabled: !!s.payment_split_enabled }); setS(data); toast.success(t("bill.issuerSaved")); }
     catch (e) { toast.error(formatApiError(e.response?.data?.detail)); }
   };
   const addCat = async () => {
@@ -72,6 +73,19 @@ export default function AdminSettings() {
           <div><Label htmlFor="iname">{t("bill.issuerName")}</Label><Input id="iname" value={s.issuer_name || ""} onChange={(e) => setS({ ...s, issuer_name: e.target.value })} className="mt-1.5" data-testid="issuer-name" /></div>
           <div><Label htmlFor="itax">{t("bill.issuerTaxId")}</Label><Input id="itax" value={s.issuer_tax_id || ""} onChange={(e) => setS({ ...s, issuer_tax_id: e.target.value })} className="mt-1.5" data-testid="issuer-tax-id" /></div>
           <div><Label htmlFor="iiban">{t("bill.issuerIban")}</Label><Input id="iiban" value={s.issuer_iban || ""} onChange={(e) => setS({ ...s, issuer_iban: e.target.value })} className="mt-1.5" data-testid="issuer-iban" /></div>
+          <div>
+            <Label htmlFor="pprov">{t("pay.provider")}</Label>
+            <select id="pprov" value={s.payment_provider || "tbc"} onChange={(e) => setS({ ...s, payment_provider: e.target.value })} data-testid="payment-provider"
+              className="mt-1.5 h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm">
+              <option value="tbc">TBC</option><option value="bog">BOG</option><option value="stripe">Stripe</option>
+            </select>
+          </div>
+          <div><Label htmlFor="pcid">{t("pay.clientId")}</Label><Input id="pcid" value={s.payment_client_id || ""} onChange={(e) => setS({ ...s, payment_client_id: e.target.value })} className="mt-1.5" autoComplete="off" data-testid="payment-client-id" /></div>
+          <div><Label htmlFor="psec">{t("pay.secret")}</Label><Input id="psec" type="password" value={s.payment_secret || ""} onChange={(e) => setS({ ...s, payment_secret: e.target.value })} placeholder={s.payment_secret_set ? t("pay.secretKeep") : ""} className="mt-1.5" autoComplete="new-password" data-testid="payment-secret" /></div>
+          <div className="flex items-center justify-between gap-3">
+            <Label htmlFor="psplit">{t("pay.split")}</Label>
+            <Switch id="psplit" checked={!!s.payment_split_enabled} onCheckedChange={(v) => setS({ ...s, payment_split_enabled: v })} data-testid="payment-split-toggle" />
+          </div>
           <Button onClick={saveIssuer} data-testid="save-issuer-btn"><Save className="mr-1.5 h-4 w-4" /> {t("bill.saveIssuer")}</Button>
         </div>
       </div>
@@ -79,7 +93,7 @@ export default function AdminSettings() {
       <div className="rounded-xl border border-border bg-card p-6">
         <h3 className="flex items-center gap-2 text-lg font-semibold"><Tags className="h-5 w-5 text-primary" /> {t("cat.manage")}</h3>
         <div className="mt-4 flex flex-wrap gap-2">
-          {cats.map((c) => <Badge key={c} className="bg-secondary text-secondary-foreground" data-testid={`category-chip-${c}`}>{c}</Badge>)}
+          {cats.map((c, index) => <Badge key={`${c}-${index}`} className="bg-secondary text-secondary-foreground" data-testid={`category-chip-${c}`}>{c}</Badge>)}
         </div>
         <div className="mt-4 flex gap-2">
           <Input value={newCat} onChange={(e) => setNewCat(e.target.value)} placeholder={t("cat.addNew")} data-testid="new-category-input" onKeyDown={(e) => e.key === "Enter" && addCat()} />
