@@ -377,7 +377,7 @@ export function AppLayout({ children }) {
               </div>
             </Link>
           </div>
-          <div className="ml-auto flex max-w-full flex-wrap items-center justify-end gap-1 sm:gap-1.5">
+          <div className="ml-auto flex max-w-full shrink-0 flex-wrap items-center justify-end gap-0.5 sm:gap-1.5">
             {user.role === "supplier" && isSupplierOwner && warehouses.some((warehouse) => warehouse.active !== false) && (
               <select
                 aria-label={t("warehouse.switch")}

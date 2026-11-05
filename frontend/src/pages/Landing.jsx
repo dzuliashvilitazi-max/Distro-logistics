@@ -39,12 +39,12 @@ export default function Landing() {
   return (
     <div className="min-h-screen bg-background text-foreground">
       <header className="sticky top-0 z-40 border-b border-border bg-background/80 backdrop-blur-md">
-        <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-3.5 sm:px-6 lg:px-8">
-          <div className="flex items-center gap-2.5">
-            <img src={logo} alt="Distro Logistics" className="h-10 w-10 object-contain" />
-            <p className="text-lg font-extrabold tracking-tight">Distro<span className="text-primary">Logistics</span></p>
+        <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-x-3 gap-y-2 px-3 py-3 sm:flex-nowrap sm:px-6 sm:py-3.5 lg:px-8">
+          <div className="flex min-w-0 items-center gap-2 sm:gap-2.5">
+            <img src={logo} alt="Distro Logistics" className="h-9 w-9 shrink-0 object-contain sm:h-10 sm:w-10" />
+            <p className="truncate whitespace-nowrap text-base font-extrabold tracking-tight sm:text-lg">Distro<span className="text-primary">Logistics</span></p>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="ml-auto flex shrink-0 items-center gap-1 sm:gap-2">
             <PublicLangSwitcher />
             {user ? (
               <Link to="/"><Button data-testid="go-dashboard-btn">{t("land.goToDashboard")} <ArrowRight className="ml-1.5 h-4 w-4" /></Button></Link>
