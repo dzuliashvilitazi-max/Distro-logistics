@@ -6,7 +6,7 @@ import { useAuth } from "@/context/AuthContext";
 import { useI18n } from "@/context/I18nContext";
 import { LANGUAGES } from "@/lib/i18n";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import logo from '@/assets/logo_distro.png';
+import logo from '@/assets/logo.png';
 
 export function PublicLangSwitcher() {
   const { lang, setLang } = useI18n();
