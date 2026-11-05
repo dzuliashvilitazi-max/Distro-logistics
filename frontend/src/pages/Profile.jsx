@@ -10,7 +10,6 @@ import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
 import { StatusBadge } from "@/components/StatusBadge";
 import { CardForm } from "@/components/CardForm";
-import { SmtpSettings } from "@/components/SmtpSettings";
 import { GEORGIAN_BANKS, normalizeIban, isValidGeIban } from "@/lib/banks";
 import { LogoUpload } from "@/components/BusinessLogo";
 import { ApiIntegrations } from "@/components/ApiIntegrations";
@@ -88,7 +87,6 @@ export default function Profile() {
               </div>
             </div>
           </div>
-          <SmtpSettings />
           {user.role === "retailer" && (
             <CardForm />
           )}

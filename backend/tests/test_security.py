@@ -52,6 +52,7 @@ def test_production_config_requires_tls_secrets_and_cidrs():
         "APP_ENV": "production", "MONGO_URL": "mongodb+srv://user:pass@cluster/db",
         "MONGO_AUDIT_URL": "mongodb+srv://audit:pass@cluster/audit", "DB_NAME": "distro",
         "MONGO_TLS": "true", "JWT_SECRET": "j" * 32, "FIELD_ENCRYPTION_KEY": KEY,
+        "RESEND_API_KEY": "re_test_key",
         "CORS_ORIGINS": "https://app.example", "APP_BASE_URL": "https://app.example",
         "WEBHOOK_ALLOWED_IPS": "203.0.113.10/32", "BANK_WEBHOOK_SECRET": "b" * 32,
         "INVOICE_WEBHOOK_SECRET": "i" * 32,

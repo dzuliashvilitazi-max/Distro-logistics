@@ -1448,7 +1448,8 @@ async def issue_otp(email: str, name: str) -> None:
         "expires_at": (datetime.now(timezone.utc) + timedelta(minutes=10)).isoformat(),
         "attempts": 0, "last_sent": now_iso(),
     }}, upsert=True)
-    log.info(f"[OTP] Verification code for {email}: {code}")
+    if os.environ.get("APP_ENV", "").strip().lower() in {"development", "dev", "test", "testing"}:
+        log.info(f"[OTP] Verification code for {email}: {code}")
     await try_send_email(to=email, subject="Your Distro Logistics verification code",
                          html=otp_email_html(code, name))
 
@@ -5535,56 +5536,6 @@ async def _render_order_invoice(order: dict) -> bytes:
     return build_order_invoice_pdf(order, supplier=supplier, buyer=buyer, due_date=due_date)
 
 
-def _smtp_fernet():
-    from cryptography.fernet import Fernet
-    secret = os.environ.get("SMTP_ENCRYPTION_KEY") or JWT_SECRET
-    return Fernet(base64.urlsafe_b64encode(hashlib.sha256(f"smtp-settings:{secret}".encode()).digest()))
-
-
-class SmtpSettingsIn(BaseModel):
-    smtp_user: str = Field(default="", max_length=200)
-    smtp_password: Optional[str] = Field(default=None, max_length=200)  # None/empty keeps the stored one
-    smtp_host: str = Field(default="smtp.gmail.com", max_length=200)
-    smtp_port: int = Field(default=587, ge=1, le=65535)
-
-
-async def _load_user_smtp(owner_id: str) -> Optional[dict]:
-    doc = await db.user_smtp.find_one({"user_id": owner_id}, {"_id": 0})
-    if not doc or not doc.get("user") or not doc.get("password_enc"):
-        return None
-    try:
-        password = _smtp_fernet().decrypt(doc["password_enc"].encode()).decode()
-    except Exception:
-        return None
-    return {"host": doc.get("host") or "smtp.gmail.com", "port": int(doc.get("port") or 587),
-            "user": doc["user"], "password": password, "from": doc["user"]}
-
-
-@api.get("/profile/smtp")
-async def get_smtp_settings(user: dict = Depends(get_current_user)):
-    doc = await db.user_smtp.find_one({"user_id": store_owner_id(user) if user["role"] == "retailer" else user["id"]}, {"_id": 0}) or {}
-    return {"smtp_user": doc.get("user", ""), "smtp_host": doc.get("host") or "smtp.gmail.com",
-            "smtp_port": doc.get("port") or 587, "smtp_password_set": bool(doc.get("password_enc"))}
-
-
-@api.put("/profile/smtp")
-async def update_smtp_settings(body: SmtpSettingsIn, user: dict = Depends(get_current_user)):
-    owner = store_owner_id(user) if user["role"] == "retailer" else user["id"]
-    smtp_user = body.smtp_user.strip()
-    if smtp_user and not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", smtp_user):
-        raise HTTPException(422, "გამგზავნის ელ.ფოსტა არასწორია")
-    host = body.smtp_host.strip() or "smtp.gmail.com"
-    if not re.fullmatch(r"[A-Za-z0-9.-]+", host):
-        raise HTTPException(422, "SMTP ჰოსტი არასწორია")
-    upd = {"user": smtp_user, "host": host, "port": body.smtp_port, "updated_at": now_iso()}
-    if body.smtp_password:
-        upd["password_enc"] = _smtp_fernet().encrypt(body.smtp_password.replace(" ", "").encode()).decode()
-    if not smtp_user:
-        upd["password_enc"] = ""
-    await db.user_smtp.update_one({"user_id": owner}, {"$set": upd, "$setOnInsert": {"user_id": owner}}, upsert=True)
-    return await get_smtp_settings(user)
-
-
 @api.post("/orders/{oid}/invoice/share")
 async def share_order_invoice(
     oid: str, body: OrderInvoiceShareIn, user: dict = Depends(get_current_user),
@@ -5619,12 +5570,7 @@ async def share_order_invoice(
         + f"<p>The full invoice PDF is attached to this email (Invoice_{html_escape(order_no)}.pdf). / "
           "ინვოისის სრული PDF დოკუმენტი მიმაგრებულია ამ წერილზე.</p>"
     )
-    smtp_cfg = await _load_user_smtp(store_owner_id(user) if user["role"] == "retailer" else user["id"])
-    if not smtp_cfg:
-        raise HTTPException(
-            400, "გთხოვთ, მიუთითოთ თქვენი მეილისა და App Password-ის მონაცემები პროფილის პარამეტრებში ინვოისების გასაგზავნად.")
     sent, reason = await try_send_email_detailed(
-        smtp=smtp_cfg,
         to=recipient,
         subject=f"Invoice {order_no} from {sender_name}",
         html=html,
@@ -7982,13 +7928,13 @@ _SUPPORT_KB = {
         (r"შეკვეთ|გაფორმ|checkout|order", "შეკვეთის გასაფორმებლად დაამატეთ პროდუქცია კალათაში, გადადით „კალათაში“, მიუთითეთ მისამართი და გადახდის მეთოდი და დააჭირეთ „შეკვეთის გაფორმებას“. ისტორია ჩანს „ჩემი შეკვეთები“-ში."),
         (r"რე-?ორდ|ხელახლა|reorder|re-order", "„ჩემი შეკვეთები“-ში შეკვეთასთან დააჭირეთ „ხელახლა გამოწერა“. პროდუქცია კალათაში გადავა მიმდინარე ფასებითა და მარაგით, სადაც რაოდენობების შეცვლა, წაშლა და ახლის დამატება შეგიძლიათ."),
         (r"ბარათ|card|გადახდ", "ბარათის მისაბმელად გახსენით „პროფილი“ და დააჭირეთ „ახალი ბარათის დამატება“. შეგიძლიათ რამდენიმე ბარათის მიბმა; შეკვეთისას ისინი გადახდის მეთოდებში გამოჩნდება. სხვა მეთოდებია: ნაღდი, კონსიგნაცია, საბანკო გადარიცხვა."),
-        (r"ბუღალტ|ინვოის|invoice|მეილ|ელ.?ფოსტ|smtp", "ინვოისის გასაგზავნად „ჩემი შეკვეთები“-ში გახსენით შეკვეთა და დააჭირეთ „ინვოისის გაგზავნას“ (PDF მიმაგრებული გაიგზავნება). ბუღალტრის ელფოსტა და გამგზავნი ელფოსტის (SMTP/App Password) მონაცემები მიუთითეთ „პროფილში“."),
+        (r"ბუღალტ|ინვოის|invoice|მეილ|ელ.?ფოსტ|smtp", "ინვოისის გასაგზავნად „ჩემი შეკვეთები“-ში გახსენით შეკვეთა და დააჭირეთ „ინვოისის გაგზავნას“ (PDF მიმაგრებული გაიგზავნება). მიმღების მისამართი მიუთითეთ პროფილში, ბუღალტრის ელფოსტის ველში; გაგზავნას პლატფორმა მართავს."),
     ],
     "supplier": [
         (r"კატალოგ|პროდუქ|მარაგ|ინვენტ|stock|inventory", "პროდუქციისა და მარაგის სამართავად გახსენით „ინვენტარი“: შეგიძლიათ პროდუქტის დამატება/რედაქტირება, მარაგის განახლება და CSV/Excel იმპორტი."),
         (r"ფას|price|ფასდაკლ", "ფასებს ცვლით „ინვენტარში“ პროდუქტის რედაქტირებისას (საფეხურებრივი ფასებიც). ინდივიდუალური ფასის მოთხოვნები ჩანს „ფასების მოლაპარაკებებში“."),
         (r"შეკვეთ|order", "შემოსული შეკვეთები ჩანს „შეკვეთებში“: დაადასტურეთ, გადაიყვანეთ სტატუსები (დამუშავება, გზაში, მიწოდებული) და გაუგზავნეთ მაღაზიას."),
-        (r"ინვოის|invoice|ბუღალტ|მეილ|ელ.?ფოსტ|smtp", "შეკვეთის ინვოისს PDF-ად გადმოწერთ ან ელფოსტით გააგზავნით შეკვეთის გვერდიდან. SMTP და ბუღალტრის ელფოსტა მიუთითეთ „პროფილში“; საბანკო ანგარიშებიც (რამდენიმე IBAN) იქვეა."),
+        (r"ინვოის|invoice|ბუღალტ|მეილ|ელ.?ფოსტ|smtp", "შეკვეთის ინვოისს PDF-ად გადმოწერთ ან ელფოსტით გააგზავნით შეკვეთის გვერდიდან. ბუღალტრის ელფოსტა მიუთითეთ „პროფილში“; გაგზავნას პლატფორმა მართავს, საბანკო ანგარიშებიც (რამდენიმე IBAN) იქვეა."),
     ],
 }
 
@@ -8296,7 +8242,7 @@ Report amounts in GEL (₾). Answer product questions (e.g. "Coca-Cola or Fanta?
 ACCOUNTING: period expenses and revenue, margin and cost of goods, accounts payable (stores) / receivable (distributors),
 cash-flow and cost-optimisation advice. Respect staff permissions for financial data.
 SUPPORT: for lag/freezing give concrete steps (F5, clear cache, check connection, restart browser). Explain step by step:
-adding employees (Employees page -> Add New), linking cards (Profile -> Cards -> + New card), SMTP/accountant email setup.
+adding employees (Employees page -> Add New), linking cards (Profile -> Cards -> + New card), invoice recipient email setup.
 ADVISOR: stores - assortment planning, restocking popular items, purchase analysis; distributors - stock control,
 pricing strategy, processing incoming orders.
 SECURITY: never reveal or discuss source code, API keys, database structure, architecture or .env files, nor other users'
@@ -8315,8 +8261,8 @@ _SUPPORT_TOPICS = [
      ["ბარათის წასაშლელად გახსენით „პროფილი“ → „ბარათი“ და დააჭირეთ ურნის ღილაკს იმ ბარათის გვერდით, რომლის წაშლაც გსურთ."],
      None, False),
     (r"ბუღალტ|smtp|app\s*password|აპლიკაციის პაროლ|გამგზავნ.*ელ|ინვოისი.*(არ იგზავნ|ვერ გავაგზავნ)",
-     ["ინვოისის გაგზავნის მოსამზადებლად გახსენით „პროფილი“ და მიუთითეთ: (1) ბუღალტრის ელფოსტა — სადაც ინვოისები მივა; (2) SMTP ბლოკში თქვენი გამგზავნი ელფოსტა, App Password, ჰოსტი (Gmail: smtp.gmail.com) და პორტი (587). Gmail-ზე საჭიროა 2-Step Verification და ცალკე App Password. შემდეგ „ჩემი შეკვეთები“-ში დააჭირეთ „ინვოისის გაგზავნას“ — PDF მიმაგრებული წავა. სხვა მისამართზე გასაგზავნად გამოიყენეთ „სხვა ელ.ფოსტაზე“; ის დაიმახსოვრება.",
-      "თუ ინვოისი არ იგზავნება, ყველაზე ხშირი მიზეზებია: SMTP მონაცემები არ არის შევსებული, Gmail-ზე ჩვეულებრივი პაროლია App Password-ის ნაცვლად, ან პორტი არასწორია (587 STARTTLS, 465 SSL). შეამოწმეთ პროფილში და სცადეთ ხელახლა; ეკრანზე გამოჩნდება შეცდომის კონკრეტული მიზეზი."],
+         ["ინვოისის გასაგზავნად მიუთითეთ მიმღები/ბუღალტრის ელფოსტა „პროფილში“, შემდეგ „ჩემი შეკვეთები“-ში დააჭირეთ „ინვოისის გაგზავნას“ — PDF მიმაგრებული გაიგზავნება. გამგზავნ ელფოსტასა და მიწოდებას პლატფორმა მართავს.",
+            "თუ ინვოისი არ იგზავნება, შეამოწმეთ მიმღების ელფოსტა პროფილში და Render-ის backend logs-ში Resend API-ის შეცდომა. სხვა მისამართზე გასაგზავნად გამოიყენეთ „სხვა ელ.ფოსტაზე“; ის დაიმახსოვრება."],
      None, False),
     (r"რე-?ორდ|ხელახლა გამოწ|reorder|re-order|გავიმეორო შეკვეთ",
      ["„ჩემი შეკვეთები“-ში დააჭირეთ შეკვეთასთან „ხელახლა გამოწერას“. პროდუქცია კალათაში გადავა მიმდინარე ფასებითა და მარაგით; მარაგგამოლეული პოზიციები გამოტოვებულია. კალათაში შეგიძლიათ რაოდენობების შეცვლა, ზედმეტის წაშლა და კატალოგიდან ახლის დამატება."],

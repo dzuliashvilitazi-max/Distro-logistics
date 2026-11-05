@@ -319,7 +319,7 @@ def validate_production_environment(env: Optional[dict] = None) -> None:
     if app_env != "production":
         raise RuntimeError("APP_ENV must be explicitly set to 'production', 'development', or 'test'.")
 
-    required = ("MONGO_URL", "MONGO_AUDIT_URL", "DB_NAME", "JWT_SECRET", "FIELD_ENCRYPTION_KEY",
+    required = ("MONGO_URL", "MONGO_AUDIT_URL", "DB_NAME", "JWT_SECRET", "FIELD_ENCRYPTION_KEY", "RESEND_API_KEY",
                 "CORS_ORIGINS", "APP_BASE_URL",
                 "WEBHOOK_ALLOWED_IPS", "BANK_WEBHOOK_SECRET", "INVOICE_WEBHOOK_SECRET")
     missing = [key for key in required if not env.get(key, "").strip()]

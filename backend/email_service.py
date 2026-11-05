@@ -1,19 +1,13 @@
-"""SMTP email sending (invoices, reminders, OTP) for Distro Logistics."""
+"""Resend email delivery (invoices, reminders, OTP) for Distro Logistics."""
 import os
 import re
-import base64
-import asyncio
-import smtplib
-import socket
-import ssl
-from email.message import EmailMessage
-from email.utils import formataddr
 import ipaddress
 import logging
-import httpx
 from html import escape
 from html.parser import HTMLParser
 from urllib.parse import urlparse
+import resend
+from resend.exceptions import ResendError
 
 logger = logging.getLogger("distro.email")
 
@@ -93,98 +87,47 @@ def _assert_safe_email(subject: str, html: str) -> None:
                 raise ValueError(f"Anchor text {m.group(1)!r} != real link host {real!r} (G3)")
 
 
-def _smtp_configured() -> bool:
-    return bool(os.environ.get("SMTP_HOST") and os.environ.get("SMTP_USER") and os.environ.get("SMTP_PASSWORD"))
-
-
-def _env_smtp() -> dict:
-    return {"host": os.environ.get("SMTP_HOST", ""), "port": int(os.environ.get("SMTP_PORT", "587")),
-            "user": os.environ.get("SMTP_USER", ""), "password": os.environ.get("SMTP_PASSWORD", ""),
-            "from": os.environ.get("SMTP_FROM", "")}
-
-
-def _build_message(to: str, subject: str, html: str, attachments: list[dict] | None, cfg: dict | None = None) -> EmailMessage:
-    cfg = cfg or _env_smtp()
-    sender = cfg.get("from") or cfg["user"]
-    msg = EmailMessage()
-    msg["From"] = formataddr((EMAIL_FROM_NAME, sender))
-    msg["To"] = to
-    msg["Subject"] = subject
-    if EMAIL_REPLY_TO:
-        msg["Reply-To"] = EMAIL_REPLY_TO
-    msg.set_content(re.sub(r"<[^>]+>", " ", html))
-    msg.add_alternative(html, subtype="html")
-    for a in attachments or []:
-        maintype, _, subtype = a.get("content_type", "application/pdf").partition("/")
-        msg.add_attachment(a["content"], maintype=maintype, subtype=subtype or "octet-stream", filename=a["filename"])
-    return msg
-
-
-def _smtp_send(msg: EmailMessage, cfg: dict | None = None) -> None:
-    cfg = cfg or _env_smtp()
-    host, port, user, password = cfg["host"], int(cfg["port"]), cfg["user"], cfg["password"]
-    if port == 465:
-        server = smtplib.SMTP_SSL(host, port, timeout=30, context=ssl.create_default_context())
-    else:
-        server = smtplib.SMTP(host, port, timeout=30)
-    with server:
-        if port != 465:
-            server.starttls(context=ssl.create_default_context())
-        server.login(user, password)
-        server.send_message(msg)
-
-
 async def send_email(*, to: str, subject: str, html: str, attachments: list[dict] | None = None,
-                     smtp: dict | None = None) -> str | None:
-    """attachments: [{"filename": str, "content": bytes, "content_type": str}]"""
+                     ) -> str:
+    """Send HTML email via Resend; attachments use filename/content/content_type dictionaries."""
     _assert_safe_email(subject, html)
-    if not (smtp or _smtp_configured()):
-        raise RuntimeError("SMTP is not configured (SMTP_HOST, SMTP_USER, SMTP_PASSWORD).")
-    await asyncio.to_thread(_smtp_send, _build_message(to, subject, html, attachments, smtp), smtp)
-    return "smtp"
-
-
-def describe_email_error(e: Exception, cfg: dict | None = None) -> str:
-    cfg = cfg or _env_smtp()
-    host = cfg.get("host", "")
-    port = str(cfg.get("port", "587"))
-    if isinstance(e, smtplib.SMTPAuthenticationError):
-        hint = " (Gmail-ისთვის გამოიყენეთ App Password და ჩართეთ 2-Step Verification)" if "gmail" in host else ""
-        return f"SMTP Authentication Failed ({e.smtp_code}): ავტორიზაცია ვერ მოხერხდა - შეამოწმეთ SMTP_USER/SMTP_PASSWORD{hint}"
-    if isinstance(e, smtplib.SMTPRecipientsRefused):
-        return f"SMTP: მიმღების მისამართი უარყოფილია: {e.recipients}"
-    if isinstance(e, smtplib.SMTPSenderRefused):
-        return f"SMTP: გამგზავნის მისამართი უარყოფილია ({e.smtp_code}) - შეამოწმეთ SMTP_FROM"
-    if isinstance(e, smtplib.SMTPConnectError | smtplib.SMTPServerDisconnected):
-        return f"SMTP: სერვერთან კავშირი გაწყდა/ვერ დამყარდა ({host}:{port}): {e}"
-    if isinstance(e, ssl.SSLError):
-        return f"SMTP: SSL/TLS შეცდომა - შეამოწმეთ პორტი ({host}:{port}; 465=SSL, 587=STARTTLS): {e}"
-    if isinstance(e, TimeoutError | socket.timeout):
-        return f"SMTP: დრო ამოიწურა ({host}:{port}) - პორტი დაბლოკილია ან მისამართი არასწორია"
-    if isinstance(e, socket.gaierror):
-        return f"SMTP: ჰოსტი ვერ მოიძებნა: {host!r} ({e})"
-    if isinstance(e, OSError):
-        return f"SMTP: ქსელური შეცდომა ({host}:{port}): {e}"
-    if isinstance(e, smtplib.SMTPException):
-        return f"SMTP შეცდომა: {e}"
-    return f"{type(e).__name__}: {e}"
+    api_key = os.environ.get("RESEND_API_KEY", "").strip()
+    if not api_key:
+        raise RuntimeError("RESEND_API_KEY is not configured.")
+    resend.api_key = api_key
+    params = {
+        "from": f"{EMAIL_FROM_NAME} <onboarding@resend.dev>",
+        "to": [to],
+        "subject": subject,
+        "html": html,
+    }
+    if EMAIL_REPLY_TO:
+        params["reply_to"] = EMAIL_REPLY_TO
+    if attachments:
+        params["attachments"] = [
+            {"filename": item["filename"], "content": list(item["content"])}
+            for item in attachments
+        ]
+    await resend.Emails.send_async(params)
+    return "resend"
 
 
 async def try_send_email_detailed(*, to: str, subject: str, html: str,
-                                  attachments: list[dict] | None = None,
-                                  smtp: dict | None = None) -> tuple[bool, str]:
+                                  attachments: list[dict] | None = None) -> tuple[bool, str]:
     """Returns (ok, reason). Logs the exact failure cause."""
-    if not smtp and not _smtp_configured():
-        reason = "ელფოსტა არ არის გამართული: დააყენეთ SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASSWORD (backend/.env)"
+    if not os.environ.get("RESEND_API_KEY", "").strip():
+        reason = "ელფოსტა არ არის გამართული: მიუთითეთ RESEND_API_KEY backend-ის გარემოს ცვლადებში."
         logger.warning(reason)
         return False, reason
     try:
-        await send_email(to=to, subject=subject, html=html, attachments=attachments, smtp=smtp)
-        logger.info(f"Email sent to {to} via SMTP: {subject}")
+        await send_email(to=to, subject=subject, html=html, attachments=attachments)
+        logger.info("Email sent to %s via Resend: %s", to, subject)
         return True, ""
-    except Exception as e:
-        reason = describe_email_error(e, smtp)
-    logger.error(f"Email send failed to {to}: {reason}")
+    except ResendError as error:
+        reason = f"Resend API error: {error}"
+    except Exception as error:
+        reason = f"{type(error).__name__}: {error}"
+    logger.error("Email send failed to %s: %s", to, reason)
     return False, reason
 
 
