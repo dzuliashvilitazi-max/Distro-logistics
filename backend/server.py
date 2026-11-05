@@ -7740,6 +7740,20 @@ async def admin_users(role: Optional[str] = None, user: dict = Depends(require_r
     users = await db.users.find(q, {"_id": 0}).sort("created_at", -1).to_list(1000)
     return [public_user_document(user_doc) for user_doc in users]
 
+@api.delete("/admin/users/{uid}")
+async def delete_admin_user(uid: str, user: dict = Depends(require_role("admin"))):
+    if uid == user["id"]:
+        raise HTTPException(400, "საკუთარი ანგარიშის წაშლა შეუძლებელია.")
+    target = await db.users.find_one({"id": uid}, {"_id": 0, "id": 1, "role": 1})
+    if not target:
+        raise HTTPException(404, "მომხმარებელი ვერ მოიძებნა.")
+    if target.get("role") == "admin" and await db.users.count_documents({"role": "admin"}) <= 1:
+        raise HTTPException(400, "ბოლო ადმინისტრატორის წაშლა შეუძლებელია.")
+    result = await db.users.delete_one({"id": uid})
+    if result.deleted_count == 0:
+        raise HTTPException(404, "მომხმარებელი ვერ მოიძებნა.")
+    return {"ok": True}
+
 @api.put("/admin/users/{uid}/commission")
 async def set_user_commission(uid: str, body: CommissionIn, user: dict = Depends(require_role("admin"))):
     target = await db.users.find_one({"id": uid}, {"_id": 0, "role": 1})

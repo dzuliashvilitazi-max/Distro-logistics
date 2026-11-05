@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { api, formatApiError } from "@/lib/api";
 import { useI18n } from "@/context/I18nContext";
 import { StatusBadge } from "@/components/StatusBadge";
-import { Check, Ban, RotateCcw, Percent } from "lucide-react";
+import { Check, Ban, RotateCcw, Percent, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { toast } from "sonner";
@@ -18,6 +18,7 @@ export default function AdminUsers() {
   const [commissionUser, setCommissionUser] = useState(null);
   const [form, setForm] = useState({ enabled: false, type: "percent", value: "", payer: "" });
   const [saving, setSaving] = useState(false);
+  const [deletingId, setDeletingId] = useState(null);
 
   const load = () => api.get(`/admin/users?role=${tab}`).then((r) => setUsers(r.data));
   useEffect(() => { load(); }, [tab]);
@@ -52,6 +53,17 @@ export default function AdminUsers() {
   const setStatus = async (id, status) => {
     try { await api.put(`/admin/users/${id}/status`, { status }); toast.success(status === "active" ? t("usr.approved") : t("usr.updated")); load(); }
     catch (e) { toast.error(formatApiError(e.response?.data?.detail)); }
+  };
+
+  const deleteUser = async (user) => {
+    if (!window.confirm("ნამდვილად გსურთ მომხმარებლის წაშლა?")) return;
+    setDeletingId(user.id);
+    try {
+      await api.delete(`/admin/users/${encodeURIComponent(user.id)}`);
+      setUsers((current) => current.filter((item) => item.id !== user.id));
+      toast.success("მომხმარებელი წაიშალა.");
+    } catch (e) { toast.error(formatApiError(e.response?.data?.detail)); }
+    finally { setDeletingId(null); }
   };
 
   const pending = users.filter((u) => u.role === "supplier" && u.status === "pending");
@@ -109,6 +121,7 @@ export default function AdminUsers() {
                   )}                  {u.role !== "admin" && (u.status === "active"
                     ? <Button size="sm" variant="outline" className="text-rose-500 hover:bg-rose-500/10" onClick={() => setStatus(u.id, "suspended")} data-testid={`suspend-user-${u.id}`}><Ban className="mr-1 h-3.5 w-3.5" /> {t("usr.suspend")}</Button>
                     : <Button size="sm" variant="outline" onClick={() => setStatus(u.id, "active")} data-testid={`activate-user-${u.id}`}><RotateCcw className="mr-1 h-3.5 w-3.5" /> {t("usr.activate")}</Button>)}
+                  <Button type="button" size="icon" variant="ghost" className="h-8 w-8 text-destructive hover:bg-destructive/10" onClick={() => deleteUser(u)} disabled={deletingId === u.id} aria-label="მომხმარებლის წაშლა" title="მომხმარებლის წაშლა" data-testid={`delete-user-${u.id}`}><Trash2 className="h-4 w-4" /></Button>
                 </div></td>
               </tr>
             ))}

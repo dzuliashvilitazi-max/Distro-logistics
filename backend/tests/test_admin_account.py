@@ -1,4 +1,5 @@
 import asyncio
+from types import SimpleNamespace
 
 import pytest
 from fastapi.testclient import TestClient
@@ -26,6 +27,14 @@ class Users:
     async def update_one(self, query, update):
         row = next(r for r in self.rows if all(r.get(k) == v for k, v in query.items()))
         row.update(update.get("$set", {}))
+
+    async def delete_one(self, query):
+        original_count = len(self.rows)
+        self.rows[:] = [r for r in self.rows if not all(r.get(k) == v for k, v in query.items())]
+        return SimpleNamespace(deleted_count=original_count - len(self.rows))
+
+    async def count_documents(self, query):
+        return sum(all(row.get(k) == v for k, v in query.items()) for row in self.rows)
 
 
 class FakeDB:
@@ -56,6 +65,26 @@ def test_admin_created_and_can_log_in(monkeypatch):
     assert res.json()["user"]["role"] == "admin" and res.json()["token"]
     assert "password_hash" not in res.json()["user"]
     assert login(monkeypatch, db, "wrong").status_code == 401
+
+
+def test_admin_can_delete_user_but_not_self(monkeypatch):
+    db = FakeDB([
+        {"id": "admin-1", "email": EMAIL, "role": "admin", "status": "active",
+         "password_hash": server.hash_password(PASSWORD)},
+        {"id": "retailer-1", "email": "retailer@example.com", "role": "retailer"},
+    ])
+    response = login(monkeypatch, db)
+    assert response.status_code == 200
+    client = TestClient(server.app)
+    headers = {"Authorization": f"Bearer {response.json()['token']}"}
+
+    deleted = client.delete("/api/admin/users/retailer-1", headers=headers)
+    assert deleted.status_code == 200
+    assert all(row["id"] != "retailer-1" for row in db.users.rows)
+
+    self_delete = client.delete("/api/admin/users/admin-1", headers=headers)
+    assert self_delete.status_code == 400
+    assert any(row["id"] == "admin-1" for row in db.users.rows)
 
 
 def test_existing_account_is_promoted_and_repaired(monkeypatch):

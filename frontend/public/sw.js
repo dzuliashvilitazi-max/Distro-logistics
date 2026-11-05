@@ -1,7 +1,7 @@
-const VERSION = "v1";
+const VERSION = "v2";
 const SHELL_CACHE = `distro-shell-${VERSION}`;
 const ASSET_CACHE = `distro-assets-${VERSION}`;
-const SHELL_URLS = ["/", "/manifest.json", "/icon-192.png", "/icon-512.png", "/apple-touch-icon.png"];
+const SHELL_URLS = ["/", "/manifest.json", "/favicon-32.png", "/icon-192.png", "/icon-512.png", "/icon-maskable-192.png", "/icon-maskable-512.png", "/apple-touch-icon.png"];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(

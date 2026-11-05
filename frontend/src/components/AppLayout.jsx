@@ -362,22 +362,22 @@ export function AppLayout({ children }) {
   return (
     <div className="min-h-screen bg-background">
       <header className="sticky top-0 z-40 border-b border-border/80 bg-background/90 backdrop-blur-xl">
-        <div className="mx-auto flex min-h-16 max-w-screen-2xl items-center justify-between px-4 py-3 lg:px-8">
-          <div className="flex items-center gap-3">
+        <div className="mx-auto flex min-h-16 max-w-screen-2xl flex-wrap items-center gap-x-3 gap-y-2 px-3 py-2 sm:flex-nowrap sm:justify-between sm:px-4 lg:px-8">
+          <div className="flex min-w-0 flex-1 items-center gap-2 sm:flex-none sm:gap-3">
             <Button variant="ghost" size="icon" className="lg:hidden" onClick={() => setMobileOpen((v) => !v)} data-testid="mobile-menu-toggle">
               {mobileOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
             </Button>
-            <Link to="/" className="flex items-center gap-2.5">
-              <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary">
+            <Link to="/" className="flex min-w-0 items-center gap-2 sm:gap-2.5">
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary">
                 <Truck className="h-5 w-5 text-primary-foreground" />
               </div>
-              <div className="leading-tight">
-                <p className="text-base font-extrabold tracking-tight">Distro<span className="text-primary">Logistics</span></p>
-                <p className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground">B2B Distribution</p>
+              <div className="min-w-0 leading-tight">
+                <p className="truncate whitespace-nowrap text-sm font-extrabold tracking-tight sm:text-base">Distro<span className="text-primary">Logistics</span></p>
+                <p className="truncate whitespace-nowrap font-mono text-[10px] uppercase tracking-wider text-muted-foreground">B2B Distribution</p>
               </div>
             </Link>
           </div>
-          <div className="flex items-center gap-1.5">
+          <div className="ml-auto flex max-w-full flex-wrap items-center justify-end gap-1 sm:gap-1.5">
             {user.role === "supplier" && isSupplierOwner && warehouses.some((warehouse) => warehouse.active !== false) && (
               <select
                 aria-label={t("warehouse.switch")}
