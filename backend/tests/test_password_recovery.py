@@ -105,8 +105,8 @@ def test_expired_password_reset_code_is_rejected(monkeypatch):
     code = "123456"
     resets.rows.append({
         "user_id": "reset-user", "email": "reset@example.com", "code_hash": server.hash_otp(code),
-        "expires_at": datetime.now(timezone.utc) - timedelta(minutes=1),
-        "created_at": datetime.now(timezone.utc) - timedelta(minutes=11), "attempts": 0,
+        "expires_at": datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(minutes=1),
+        "created_at": datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(minutes=11), "attempts": 0,
     })
     monkeypatch.setattr(server, "db", type("MemoryDB", (), {"users": users, "password_resets": resets})())
     response = TestClient(server.app).post(

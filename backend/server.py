@@ -1991,7 +1991,10 @@ async def reset_password(body: ResetPasswordIn):
     email = str(body.email).strip().lower()
     now = datetime.now(timezone.utc)
     reset = await db.password_resets.find_one({"email": email})
-    if not reset or reset["expires_at"] <= now or reset.get("attempts", 0) >= 5:
+    expires_at = reset.get("expires_at") if reset else None
+    if expires_at is not None:
+        expires_at = expires_at.replace(tzinfo=timezone.utc) if expires_at.tzinfo is None else expires_at.astimezone(timezone.utc)
+    if not reset or expires_at <= now or reset.get("attempts", 0) >= 5:
         if reset:
             await db.password_resets.delete_one({"email": email})
         raise HTTPException(400, "This password reset code is invalid or has expired.")
