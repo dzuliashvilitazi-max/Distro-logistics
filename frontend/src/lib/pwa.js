@@ -88,5 +88,5 @@ export function usePwaInstall() {
     return outcome;
   };
 
-  return { showInstall, canPrompt, isIos, install };
+  return { showInstall, canPrompt, isIos, installed, install };
 }
