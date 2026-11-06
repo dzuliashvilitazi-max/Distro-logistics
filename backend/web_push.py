@@ -11,7 +11,7 @@ import logging
 import os
 import re
 from typing import Optional
-from urllib.parse import quote
+from urllib.parse import quote, urlsplit
 
 from cryptography.hazmat.primitives import serialization
 from py_vapid import Vapid01
@@ -60,12 +60,29 @@ def _normalize_public_key(value: str) -> str:
 def _vapid_subject() -> str:
     subject = os.environ.get("VAPID_SUBJECT", "").strip()
     if not subject:
-        subject = os.environ.get("VAPID_CLAIM_EMAIL", "admin@distro.local").strip()
-    if subject.startswith("mailto:") or subject.startswith("https://"):
-        return subject
-    if ":" in subject or not subject:
-        raise ValueError("VAPID_SUBJECT must be a mailto: address or HTTPS URL.")
-    return f"mailto:{subject}"
+        subject = os.environ.get("VAPID_CLAIM_EMAIL", "").strip()
+    if subject:
+        if subject.lower().startswith("mailto:"):
+            email = subject[7:]
+            if not re.fullmatch(r"[^@\s]+@[^@\s]+", email):
+                raise ValueError("VAPID_SUBJECT mailto claim must contain a valid email address.")
+            return f"mailto:{email}"
+        if subject.lower().startswith("https://"):
+            parsed = urlsplit(subject)
+            if not parsed.netloc:
+                raise ValueError("VAPID_SUBJECT HTTPS claim must contain a hostname.")
+            return subject
+        if ":" in subject or not re.fullmatch(r"[^@\s]+@[^@\s]+", subject):
+            raise ValueError("VAPID_SUBJECT must be a valid email, mailto: address, or HTTPS URL.")
+        return f"mailto:{subject}"
+
+    app_base_url = os.environ.get("APP_BASE_URL", "").strip().rstrip("/")
+    parsed_base_url = urlsplit(app_base_url)
+    if parsed_base_url.scheme == "https" and parsed_base_url.netloc:
+        return app_base_url
+    if os.environ.get("APP_ENV", "").strip().lower() == "production":
+        raise RuntimeError("Configure VAPID_SUBJECT or VAPID_CLAIM_EMAIL for production Web Push.")
+    return "mailto:admin@distro.local"
 
 
 async def get_vapid(db) -> tuple:
@@ -171,6 +188,7 @@ def _send_one(subscription: dict, payload: str, vapid: Vapid01) -> Optional[int]
     except WebPushException as exc:
         response = getattr(exc, "response", None)
         status = getattr(response, "status_code", None)
+        detail = f"{getattr(response, 'text', '')} {exc}"
         logger.warning(
             "Web push rejected subscription=%s error=%s status=%s reason=%s body=%r detail=%r",
             subscription_ref,
@@ -181,6 +199,9 @@ def _send_one(subscription: dict, payload: str, vapid: Vapid01) -> Optional[int]
             _safe_push_detail(exc, subscription),
         )
         if status in (404, 410):
+            return status
+        if status == 403 and re.search(r"badjwttoken|invalid.{0,20}(jwt|vapid)|(jwt|vapid).{0,20}invalid", detail, re.I):
+            logger.warning("Removing stale Web Push subscription after BadJwtToken subscription=%s", subscription_ref)
             return status
     except Exception as exc:
         logger.error(

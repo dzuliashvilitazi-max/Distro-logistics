@@ -9,6 +9,19 @@ function urlBase64ToUint8Array(value) {
   return Uint8Array.from(raw, (c) => c.charCodeAt(0));
 }
 
+function applicationServerKeyMatches(subscription, expectedKey) {
+  const currentKey = subscription?.options?.applicationServerKey;
+  if (!currentKey) return true;
+  const currentBytes = currentKey instanceof ArrayBuffer
+    ? new Uint8Array(currentKey)
+    : ArrayBuffer.isView(currentKey)
+      ? new Uint8Array(currentKey.buffer, currentKey.byteOffset, currentKey.byteLength)
+      : null;
+  return Boolean(currentBytes)
+    && currentBytes.length === expectedKey.length
+    && currentBytes.every((value, index) => value === expectedKey[index]);
+}
+
 // The service worker is only registered in production builds (see lib/pwa.js), so push works there.
 async function registration() {
   const existing = await navigator.serviceWorker.getRegistration();
@@ -24,10 +37,17 @@ export async function subscribeToPush() {
   const reg = await registration();
   if (!reg) return false;
   const { data } = await api.get("/push/public-key");
-  const subscription = (await reg.pushManager.getSubscription())
-    || await reg.pushManager.subscribe({
+  const applicationServerKey = urlBase64ToUint8Array(data.public_key);
+  let subscription = await reg.pushManager.getSubscription();
+  if (subscription && !applicationServerKeyMatches(subscription, applicationServerKey)) {
+    console.warn("Push VAPID key changed; rotating browser subscription");
+    await api.post("/push/unsubscribe", { endpoint: subscription.endpoint });
+    await subscription.unsubscribe();
+    subscription = null;
+  }
+  subscription = subscription || await reg.pushManager.subscribe({
       userVisibleOnly: true,
-      applicationServerKey: urlBase64ToUint8Array(data.public_key),
+      applicationServerKey,
     });
   const payload = subscription.toJSON();
   const hasEndpoint = Boolean(payload.endpoint);

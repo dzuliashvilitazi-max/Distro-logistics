@@ -111,6 +111,44 @@ def test_send_one_logs_webpush_exception_response_and_returns_expired_status(mon
     assert auth not in caplog.text
 
 
+def test_bad_jwt_403_removes_stale_subscription(monkeypatch, caplog):
+    database = AsyncMongoMockClient()["web_push_bad_jwt_test"]
+    endpoint = "https://push.example.test/bad-jwt-subscription"
+    subscription = {"user_id": "recipient-1", "endpoint": endpoint,
+                    "keys": {"p256dh": "public-key", "auth": "auth-key"}}
+
+    async def seed():
+        await database.push_subscriptions.insert_one(subscription)
+        await database.users.insert_one({"id": "recipient-1", "role": "retailer"})
+
+    asyncio.run(seed())
+
+    class Response:
+        status_code = 403
+        reason = "Forbidden"
+        text = "BadJwtToken"
+
+    def rejected_webpush(**_kwargs):
+        raise web_push.WebPushException("provider rejected JWT", response=Response())
+
+    async def fake_get_vapid(_database):
+        return "test-vapid", "test-public-key"
+
+    monkeypatch.setattr(web_push, "webpush", rejected_webpush)
+    monkeypatch.setattr(web_push, "get_vapid", fake_get_vapid)
+    monkeypatch.setenv("VAPID_SUBJECT", "mailto:push@example.test")
+    caplog.set_level(logging.WARNING, logger="distro.push")
+
+    asyncio.run(web_push.deliver(database, {
+        "id": "notification-bad-jwt", "user_id": "recipient-1", "type": "message", "text": "Hello",
+    }))
+
+    remaining = asyncio.run(database.push_subscriptions.count_documents({"endpoint": endpoint}))
+    assert remaining == 0
+    assert "BadJwtToken" in caplog.text
+    assert "Removing stale Web Push subscription" in caplog.text
+
+
 def test_get_vapid_validates_configured_public_key_matches_private(monkeypatch):
     signer = Vapid01()
     signer.generate_keys()
@@ -126,6 +164,11 @@ def test_get_vapid_validates_configured_public_key_matches_private(monkeypatch):
 
     assert returned_public_key == public_key
     assert web_push._vapid_subject() == "mailto:push@example.test"
+
+    monkeypatch.delenv("VAPID_SUBJECT", raising=False)
+    monkeypatch.delenv("VAPID_CLAIM_EMAIL", raising=False)
+    monkeypatch.setenv("APP_BASE_URL", "https://distro.example.test/")
+    assert web_push._vapid_subject() == "https://distro.example.test"
 
     monkeypatch.setattr(web_push, "_vapid_cache", None)
     monkeypatch.setenv("VAPID_PUBLIC_KEY", "a-different-public-key")
