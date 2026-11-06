@@ -89,3 +89,4 @@ def test_push_payload_titles_and_targets_cover_messages_and_broadcasts():
     assert server.web_push.push_url({"type": "broadcast"}, "retailer") == "/messages"
     assert server.web_push.push_url({"type": "message"}, "supplier") == "/messages"
     assert server.web_push.push_url({"type": "support"}, "retailer") == "/support"
+    assert server.web_push.push_url({"type": "support"}, "admin") == "/admin/support"

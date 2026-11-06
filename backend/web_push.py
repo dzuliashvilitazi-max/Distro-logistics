@@ -98,7 +98,7 @@ def push_url(notification: dict, role: str) -> str:
     if ntype in {"message", "broadcast"}:
         return "/messages"
     if ntype == "support":
-        return "/support"
+        return "/admin/support" if role == "admin" else "/support"
     return {"supplier": "/supplier/orders", "admin": "/admin/orders"}.get(role, "/orders")
 
 
