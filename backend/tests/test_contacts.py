@@ -72,6 +72,9 @@ class MemoryCollection:
                 **copy.deepcopy(update.get("$set", {})),
             })
 
+    async def insert_one(self, document):
+        self.rows.append(copy.deepcopy(document))
+
 
 class EmptyOrders:
     def find(self, query, projection=None):
@@ -89,11 +92,14 @@ def setup_contact_test(monkeypatch):
         {"id": "driver-1", "supplier_id": "supplier-1", "name": "Jemali", "phone": "+995555000003"},
     ])
     saved_contacts = MemoryCollection()
+    messages = MemoryCollection()
     monkeypatch.setattr(server, "db", type("MemoryDB", (), {
         "users": users,
         "drivers": drivers,
         "orders": EmptyOrders(),
         "saved_contacts": saved_contacts,
+        "messages": messages,
+        "terms_acceptances": MemoryCollection(),
     })())
     server.app.dependency_overrides[server.get_current_user] = lambda: owner
     return TestClient(server.app), owner
@@ -162,5 +168,64 @@ def test_registered_contact_and_owned_driver_are_saved_with_correct_chat_modes(m
         assert driver.status_code == 200
         assert driver.json()["is_external_contact"] is True
         assert driver.json()["phone"] == "+995555000003"
+    finally:
+        server.app.dependency_overrides.pop(server.get_current_user, None)
+
+
+def test_registration_adds_admin_to_new_account_contacts(monkeypatch):
+    client, owner = setup_contact_test(monkeypatch)
+    admin = {
+        "id": "admin-1", "role": "admin", "status": "active",
+        "name": "Platform Admin", "business_name": "Distro Admin", "phone": "+995555000005",
+    }
+    server.db.users.rows.append(admin)
+
+    async def no_op_issue_otp(*args, **kwargs):
+        return None
+
+    monkeypatch.setattr(server, "is_disposable_email", lambda email: False)
+    monkeypatch.setattr(server, "issue_otp", no_op_issue_otp)
+    try:
+        response = client.post("/api/auth/register", json={
+            "email": "new-user@example.com",
+            "password": "valid-password-123",
+            "name": "New User",
+            "role": "retailer",
+            "identification_number": "12345678901",
+            "vat_registered": False,
+            "accept_terms": True,
+        })
+        assert response.status_code == 200
+        new_user = next(row for row in server.db.users.rows if row.get("email") == "new-user@example.com")
+
+        saved = server.db.saved_contacts.rows
+        assert any(
+            item["owner_id"] == new_user["id"] and item["contact_id"] == "admin-1"
+            and item["kind"] == "registered" for item in saved
+        )
+    finally:
+        server.app.dependency_overrides.pop(server.get_current_user, None)
+
+
+def test_message_from_unknown_contact_is_stored_and_creates_chat(monkeypatch):
+    client, owner = setup_contact_test(monkeypatch)
+
+    async def no_op_notify(*args, **kwargs):
+        return None
+
+    monkeypatch.setattr(server, "notify", no_op_notify)
+    try:
+        response = client.post("/api/messages", json={"to_id": "retailer-1", "text": "Hello"})
+        assert response.status_code == 200
+        assert response.json()["text"] == "Hello"
+        assert len(server.db.messages.rows) == 1
+        assert any(
+            item["owner_id"] == "retailer-1" and item["contact_id"] == owner["id"]
+            for item in server.db.saved_contacts.rows
+        )
+        assert any(
+            item["owner_id"] == owner["id"] and item["contact_id"] == "retailer-1"
+            for item in server.db.saved_contacts.rows
+        )
     finally:
         server.app.dependency_overrides.pop(server.get_current_user, None)

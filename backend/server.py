@@ -1502,6 +1502,7 @@ async def register(body: RegisterIn, request: Request):
         user["entityGroup"] = _entity_group_for_type(body.establishment_type)
         user["is_retail"] = user["entityGroup"] == "RETAIL"
     await db.users.insert_one(_encrypt_sensitive_fields(user))
+    await _ensure_admin_contacts(uid)
     await db.terms_acceptances.insert_one({
         "id": str(uuid.uuid4()), "user_id": uid, "email": email, "role": body.role,
         "terms_version": terms_version, "accepted_at": accepted_at, "ip": client_ip,
@@ -1907,6 +1908,7 @@ async def create_supplier_staff(
         "created_at": now_iso(),
     }
     await db.users.insert_one(dict(staff))
+    await _ensure_admin_contacts(staff["id"])
     delivered = await try_send_email(
         to=email,
         subject="Distro Logistics branch manager invitation",
@@ -4490,6 +4492,7 @@ async def create_store_staff(body: StoreStaffIn, user: dict = Depends(require_ro
         "must_change_password": True, "created_at": now_iso(),
     }
     await db.users.insert_one(member)
+    await _ensure_admin_contacts(member["id"])
     return {
         "id": member["id"], "name": member["name"], "email": member["email"],
         "branch_id": body.branch_id, "role": body.role, "branch_role": role_name,
@@ -7739,6 +7742,34 @@ async def set_user_status(uid: str, body: StatusUpdate, user: dict = Depends(req
 
 
 # ---------- messaging ----------
+async def _save_registered_contact(owner_id: str, contact: dict) -> None:
+    contact_id = contact.get("id")
+    if not owner_id or not contact_id or owner_id == contact_id:
+        return
+    timestamp = now_iso()
+    await db.saved_contacts.update_one(
+        {"owner_id": owner_id, "id": contact_id},
+        {"$set": {
+            "contact_id": contact_id,
+            "name": contact.get("business_name") or contact.get("name") or contact.get("email") or "",
+            "phone": contact.get("phone", ""),
+            "role": contact.get("role", "other"),
+            "kind": "registered",
+            "updated_at": timestamp,
+        }, "$setOnInsert": {"created_at": timestamp}},
+        upsert=True,
+    )
+
+
+async def _ensure_admin_contacts(owner_id: str) -> None:
+    admins = await db.users.find(
+        {"role": "admin", "id": {"$ne": owner_id}, "status": {"$ne": "suspended"}},
+        {"_id": 0, "id": 1, "name": 1, "business_name": 1, "email": 1, "phone": 1, "role": 1},
+    ).to_list(100)
+    for admin in admins:
+        await _save_registered_contact(owner_id, admin)
+
+
 @api.get("/contacts")
 async def contacts(user: dict = Depends(get_current_user)):
     # Include both transactional contacts and contacts explicitly saved by this user.
@@ -7905,10 +7936,20 @@ async def get_messages(other_id: str, user: dict = Depends(get_current_user)):
 
 @api.post("/messages")
 async def send_message(body: MessageIn, user: dict = Depends(get_current_user)):
+    recipient = await db.users.find_one(
+        {"id": body.to_id, "status": {"$ne": "suspended"}},
+        {"_id": 0, "id": 1, "name": 1, "business_name": 1, "email": 1, "phone": 1, "role": 1},
+    )
+    if not recipient:
+        raise HTTPException(404, "Recipient not found.")
+    if recipient["id"] == user["id"]:
+        raise HTTPException(400, "You cannot message yourself.")
     msg = {"id": str(uuid.uuid4()), "from_id": user["id"], "from_name": user["business_name"],
            "to_id": body.to_id, "text": body.text, "order_id": body.order_id or "",
            "read": False, "created_at": now_iso()}
     await db.messages.insert_one(dict(msg))
+    await _save_registered_contact(user["id"], recipient)
+    await _save_registered_contact(body.to_id, user)
     await notify(
         body.to_id, f"ახალი შეტყობინება მომხმარებლისგან „{user['business_name']}“.",
         "message", order_id=body.order_id or None,
