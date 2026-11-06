@@ -39,7 +39,8 @@ export function usePwaInstall() {
     return () => listeners.delete(fn);
   }, []);
 
-  const isIos = /iphone|ipad|ipod/i.test(window.navigator.userAgent);
+  const isIos = /iphone|ipad|ipod/i.test(window.navigator.userAgent)
+    || (window.navigator.platform === "MacIntel" && window.navigator.maxTouchPoints > 1);
   const installed = isStandalone();
   const canPrompt = !!deferredPrompt;
   // iOS Safari has no install prompt API, so it gets manual "Add to Home Screen" instructions.

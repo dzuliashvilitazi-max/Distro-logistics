@@ -317,8 +317,9 @@ export function AppLayout({ children }) {
   );
   const [pushBusy, setPushBusy] = useState(false);
   const requiresHomeScreen = pwa.isIos && !pwa.installed;
-  const pushSupported = typeof Notification !== "undefined"
-    && (requiresHomeScreen || ("serviceWorker" in navigator && "PushManager" in window));
+  const pushSupported = requiresHomeScreen || (
+    typeof Notification !== "undefined" && "serviceWorker" in navigator && "PushManager" in window
+  );
 
   const requestPushPermission = async () => {
     if (requiresHomeScreen) {
