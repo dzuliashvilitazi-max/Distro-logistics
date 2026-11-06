@@ -1,8 +1,10 @@
 import asyncio
 import logging
 
+from fastapi.testclient import TestClient
 from mongomock_motor import AsyncMongoMockClient
 
+import server
 import web_push
 
 
@@ -37,6 +39,7 @@ def test_deliver_uses_users_subscription_and_logs_sanitized_response(monkeypatch
 
     monkeypatch.setattr(web_push, "webpush", fake_webpush)
     monkeypatch.setattr(web_push, "get_vapid", fake_get_vapid)
+    monkeypatch.setenv("VAPID_SUBJECT", "mailto:push@example.test")
     caplog.set_level(logging.INFO, logger="distro.push")
 
     asyncio.run(web_push.deliver(database, {
@@ -48,6 +51,8 @@ def test_deliver_uses_users_subscription_and_logs_sanitized_response(monkeypatch
         "endpoint": endpoint,
         "keys": {"p256dh": p256dh, "auth": auth},
     }
+    assert sent[0]["vapid_private_key"] == "test-vapid"
+    assert sent[0]["vapid_claims"] == {"sub": "mailto:push@example.test"}
     assert "Loaded Web Push subscriptions user=recipient-1 count=2" in caplog.text
     assert "status=201" in caplog.text
     assert "accepted" in caplog.text
@@ -55,6 +60,24 @@ def test_deliver_uses_users_subscription_and_logs_sanitized_response(monkeypatch
     assert p256dh not in caplog.text
     assert auth not in caplog.text
     assert "Skipping malformed Web Push subscription" in caplog.text
+
+
+def test_push_subscribe_stores_user_endpoint_and_keys(monkeypatch):
+    database = AsyncMongoMockClient()["web_push_subscribe_test"]
+    asyncio.run(database.users.insert_one({"id": "recipient-1", "role": "retailer"}))
+    monkeypatch.setattr(server, "db", database)
+    client = TestClient(server.app)
+    client.headers["Authorization"] = f"Bearer {server.create_token('recipient-1', {'role': 'retailer'})}"
+    endpoint = "https://push.example.test/device-endpoint"
+    payload = {"endpoint": endpoint, "keys": {"p256dh": "p256dh-value", "auth": "auth-value"}}
+
+    response = client.post("/api/push/subscribe", json=payload)
+    stored = asyncio.run(database.push_subscriptions.find_one({"endpoint": endpoint}, {"_id": 0}))
+
+    assert response.status_code == 200
+    assert stored["user_id"] == "recipient-1"
+    assert stored["endpoint"] == endpoint
+    assert stored["keys"] == payload["keys"]
 
 
 def test_send_one_logs_webpush_exception_response_and_returns_expired_status(monkeypatch, caplog):

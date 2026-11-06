@@ -59,10 +59,17 @@ self.addEventListener("message", (event) => {
 
 self.addEventListener("push", (event) => {
   let data = {};
-  try { data = event.data ? event.data.json() : {}; } catch { data = { body: event.data && event.data.text() }; }
+  console.info("[Distro Push] Push event received", { hasPayload: Boolean(event.data) });
+  try {
+    data = event.data ? event.data.json() : {};
+  } catch (error) {
+    console.warn("[Distro Push] Could not parse push payload", { error: error.name });
+    data = { body: event.data && event.data.text() };
+  }
   const url = new URL(data.url || "/", self.location.origin).href;
+  const title = data.title || "Distro Logistics";
   event.waitUntil(
-    self.registration.showNotification(data.title || "Distro Logistics", {
+    self.registration.showNotification(title, {
       body: data.body || "",
       icon: "/icon-192.png",
       badge: "/icon-192.png",
@@ -70,6 +77,13 @@ self.addEventListener("push", (event) => {
       tag: data.tag || undefined,
       renotify: !!data.tag,
       data: { url },
+    }).then(() => {
+      console.info("[Distro Push] System notification displayed", {
+        notificationId: data.notification_id || null,
+      });
+    }).catch((error) => {
+      console.error("[Distro Push] Could not display system notification", { error: error.name });
+      throw error;
     }),
   );
 });

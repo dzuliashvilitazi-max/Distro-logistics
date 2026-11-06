@@ -29,7 +29,24 @@ export async function subscribeToPush() {
       userVisibleOnly: true,
       applicationServerKey: urlBase64ToUint8Array(data.public_key),
     });
-  await api.post("/push/subscribe", subscription.toJSON());
+  const payload = subscription.toJSON();
+  const hasEndpoint = Boolean(payload.endpoint);
+  const hasP256dh = Boolean(payload.keys?.p256dh);
+  const hasAuth = Boolean(payload.keys?.auth);
+  console.info("Push subscription prepared", { hasEndpoint, hasP256dh, hasAuth });
+  if (!hasEndpoint || !hasP256dh || !hasAuth) {
+    throw new Error("Push subscription is missing its endpoint or encryption keys.");
+  }
+  try {
+    await api.post("/push/subscribe", payload);
+    console.info("Push subscription registered with backend");
+  } catch (error) {
+    console.error("Push subscription registration failed", {
+      status: error.response?.status || null,
+      error: error.name,
+    });
+    throw error;
+  }
   return true;
 }
 
