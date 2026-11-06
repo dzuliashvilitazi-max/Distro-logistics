@@ -66,11 +66,11 @@ db = client[os.environ['DB_NAME']]
 audit_url = os.environ.get("MONGO_AUDIT_URL", "").strip()
 audit_client = (AsyncIOMotorClient(audit_url, **safeguards.mongo_client_options(audit_url, os.environ))
                 if audit_url else None)
-audit_db = audit_client[os.environ.get("AUDIT_DB_NAME", "distro_audit")] if audit_client else None
+audit_db = audit_client[os.environ.get("AUDIT_DB_NAME", "distro_audit")] if audit_client is not None else None
 
 
 def _audit_collection(name: str):
-    target = audit_db or db
+    target = audit_db if audit_db is not None else db
     try:
         return target[name]
     except TypeError:
@@ -10652,7 +10652,7 @@ async def wait_for_database():
     for attempt in range(1, attempts + 1):
         try:
             await client.admin.command("ping")
-            if audit_client:
+            if audit_client is not None:
                 await audit_client.admin.command("ping")
             return
         except Exception as exc:
@@ -10699,7 +10699,7 @@ async def shutdown():
     if task:
         task.cancel()
     client.close()
-    if audit_client:
+    if audit_client is not None:
         audit_client.close()
 
 

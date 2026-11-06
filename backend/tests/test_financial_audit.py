@@ -7,6 +7,20 @@ from mongomock_motor import AsyncMongoMockClient
 import server
 
 
+def test_audit_collection_selects_database_without_truth_testing(monkeypatch):
+    class Database:
+        def __bool__(self):
+            raise NotImplementedError("Database objects cannot be truth-tested")
+
+        def __getitem__(self, collection_name):
+            return collection_name
+
+    monkeypatch.setattr(server, "audit_db", Database())
+    monkeypatch.setattr(server, "db", Database())
+
+    assert server._audit_collection("financial_audit_logs") == "financial_audit_logs"
+
+
 @pytest.fixture
 def audit_client(monkeypatch):
     database = AsyncMongoMockClient()["financial_audit_test"]
