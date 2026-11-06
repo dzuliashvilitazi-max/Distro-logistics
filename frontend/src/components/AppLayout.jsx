@@ -333,18 +333,19 @@ export function AppLayout({ children }) {
     typeof Notification !== "undefined" && "serviceWorker" in navigator && "PushManager" in window
   );
 
+  const showHomeScreenHint = () => toast.info(t("pwa.iosHint"));
+
   const requestPushPermission = () => {
-    if (requiresHomeScreen) {
-      toast.info(t("pwa.iosHint"));
-      return;
-    }
-    const permissionRequest = enablePush();
+    const permissionRequest = Notification.requestPermission();
     setPushBusy(true);
     permissionRequest.then((permission) => {
       setPushPermission(permission);
-      if (permission === "granted") toast.success(t("notifications.permissionGranted"));
-      else if (permission === "denied") toast.error(t("notifications.permissionDenied"));
-      else if (permission === "unsupported") toast.error(t("notifications.unsupported"));
+      if (permission === "granted") {
+        return enablePush().then(() => {
+          toast.success(t("notifications.permissionGranted"));
+        });
+      }
+      if (permission === "denied") toast.error(t("notifications.permissionDenied"));
     }).catch((error) => {
       console.error("Could not enable push notifications:", error);
       setPushPermission(typeof Notification === "undefined" ? "unsupported" : Notification.permission);
@@ -517,7 +518,7 @@ export function AppLayout({ children }) {
                     {requiresHomeScreen ? t("notifications.iosInstallPrompt") : t("notifications.pushPrompt")}
                   </p>
                 </div>
-                <Button type="button" onClick={requestPushPermission}
+                <Button type="button" onClick={requiresHomeScreen ? showHomeScreenHint : requestPushPermission}
                   disabled={pushBusy || (!requiresHomeScreen && pushContextReady === null)}
                   data-testid="enable-push-button">
                   <Bell className="mr-2 h-4 w-4" />
