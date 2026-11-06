@@ -10,7 +10,7 @@ import { api } from "@/lib/api";
 import { LogoAvatar } from "@/components/BusinessLogo";
 import { LANGUAGES } from "@/lib/i18n";
 import { usePwaInstall } from "@/lib/pwa";
-import { enablePush, subscribeToPush } from "@/lib/push";
+import { enablePush, preparePushSubscription, syncExistingPushSubscription, subscribeToPush } from "@/lib/push";
 import {
   Truck, Package, LayoutDashboard, ShoppingCart, ClipboardList, Boxes, RotateCcw,
   Users, MessageSquare, Settings, Bell, Moon, Sun, LogOut, Menu, X, BarChart3, Globe, FileText, Wallet, Route, Store, ChartNoAxesCombined, Cable, Tags, Download, LifeBuoy, Megaphone,
@@ -105,7 +105,7 @@ function playNotificationSound() {
   if (playback) playback.catch((error) => console.warn("Notification sound could not play:", error));
 }
 
-function NotificationBell({ onPermissionChange, requiresHomeScreen }) {
+function NotificationBell({ onPermissionChange, onPushContextReady, requiresHomeScreen, pushPermission, pushContextReady }) {
   const [items, setItems] = useState([]);
   const seenIds = useRef(null);
   const loadFailed = useRef(false);
@@ -142,14 +142,22 @@ function NotificationBell({ onPermissionChange, requiresHomeScreen }) {
     return () => clearInterval(t);
   }, []);
 
-  // Permission prompts require a user gesture; only refresh a subscription after permission was granted.
+  // Preload the worker/key; never create a new subscription from an effect.
   useEffect(() => {
     if (!("Notification" in window)) return undefined;
     onPermissionChange(Notification.permission);
-    if (Notification.permission !== "granted") return undefined;
-    subscribeToPush().catch((error) => console.warn("Push setup failed:", error));
+    preparePushSubscription()
+      .then((context) => {
+        onPushContextReady(Boolean(context));
+        if (Notification.permission === "granted" && context?.subscription) return syncExistingPushSubscription();
+        return false;
+      })
+      .catch((error) => {
+        onPushContextReady(false);
+        console.error("Push preparation failed:", error);
+      });
     return undefined;
-  }, [user?.id, onPermissionChange]);
+  }, [user?.id, onPermissionChange, onPushContextReady]);
 
   // Tapping a push notification while the app is already open routes inside the running app.
   useEffect(() => {
@@ -199,7 +207,8 @@ function NotificationBell({ onPermissionChange, requiresHomeScreen }) {
       toast.error(t("notifications.permissionDenied"));
       return;
     }
-    enablePush().then((permission) => {
+    const permissionRequest = enablePush();
+    permissionRequest.then((permission) => {
       onPermissionChange(permission);
       if (permission === "granted") toast.success(t("notifications.permissionGranted"));
       else if (permission === "denied") toast.error(t("notifications.permissionDenied"));
@@ -265,7 +274,9 @@ function NotificationBell({ onPermissionChange, requiresHomeScreen }) {
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <Button variant="ghost" size="icon" className="relative" data-testid="notification-bell"
-          aria-label={t("notifications.title")} title={t("notifications.title")} onClick={requestBrowserNotifications}>
+          aria-label={t("notifications.title")} title={t("notifications.title")}
+          disabled={!requiresHomeScreen && pushPermission === "default" && pushContextReady === null}
+          onClick={requestBrowserNotifications}>
           <Bell className="h-5 w-5" />
           {unread > 0 && (
             <span data-testid="notification-count" className="absolute -right-1 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full border-2 border-background bg-rose-600 px-1 text-[10px] font-bold text-white">
@@ -315,31 +326,32 @@ export function AppLayout({ children }) {
   const [pushPermission, setPushPermission] = useState(() =>
     typeof Notification === "undefined" ? "unsupported" : Notification.permission,
   );
+  const [pushContextReady, setPushContextReady] = useState(null);
   const [pushBusy, setPushBusy] = useState(false);
   const requiresHomeScreen = pwa.isIos && !pwa.installed;
   const pushSupported = requiresHomeScreen || (
     typeof Notification !== "undefined" && "serviceWorker" in navigator && "PushManager" in window
   );
 
-  const requestPushPermission = async () => {
+  const requestPushPermission = () => {
     if (requiresHomeScreen) {
       toast.info(t("pwa.iosHint"));
       return;
     }
+    const permissionRequest = enablePush();
     setPushBusy(true);
-    try {
-      const permission = await enablePush();
+    permissionRequest.then((permission) => {
       setPushPermission(permission);
       if (permission === "granted") toast.success(t("notifications.permissionGranted"));
       else if (permission === "denied") toast.error(t("notifications.permissionDenied"));
       else if (permission === "unsupported") toast.error(t("notifications.unsupported"));
-    } catch (error) {
+    }).catch((error) => {
       console.error("Could not enable push notifications:", error);
       setPushPermission(typeof Notification === "undefined" ? "unsupported" : Notification.permission);
       toast.error(t("notifications.permissionError"));
-    } finally {
+    }).finally(() => {
       setPushBusy(false);
-    }
+    });
   };
   const isStoreOwner = user.role === "retailer" && (user.store_access_role || "global_admin") === "global_admin";
   const isSupplierOwner = user.role === "supplier" && (user.supplier_access_role || "global_admin") === "global_admin";
@@ -449,7 +461,13 @@ export function AppLayout({ children }) {
               {theme === "dark" ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
             </Button>
             <LanguageSwitcher />
-            <NotificationBell onPermissionChange={setPushPermission} requiresHomeScreen={requiresHomeScreen} />
+            <NotificationBell
+              onPermissionChange={setPushPermission}
+              onPushContextReady={setPushContextReady}
+              requiresHomeScreen={requiresHomeScreen}
+              pushPermission={pushPermission}
+              pushContextReady={pushContextReady}
+            />
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button variant="ghost" className="gap-2 px-2" data-testid="user-menu">
@@ -499,7 +517,9 @@ export function AppLayout({ children }) {
                     {requiresHomeScreen ? t("notifications.iosInstallPrompt") : t("notifications.pushPrompt")}
                   </p>
                 </div>
-                <Button type="button" onClick={requestPushPermission} disabled={pushBusy} data-testid="enable-push-button">
+                <Button type="button" onClick={requestPushPermission}
+                  disabled={pushBusy || (!requiresHomeScreen && pushContextReady === null)}
+                  data-testid="enable-push-button">
                   <Bell className="mr-2 h-4 w-4" />
                   {requiresHomeScreen ? t("pwa.install") : t("notifications.enable")}
                 </Button>

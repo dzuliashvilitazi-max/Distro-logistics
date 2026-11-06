@@ -1,5 +1,7 @@
 import { api } from "@/lib/api";
 
+let preparedPushContextPromise;
+
 const supported = () =>
   typeof window !== "undefined" && "serviceWorker" in navigator && "PushManager" in window && "Notification" in window;
 
@@ -31,24 +33,33 @@ async function registration() {
   return navigator.serviceWorker.ready;
 }
 
-/** Subscribes this browser and binds it to the signed-in user. Safe to call repeatedly. */
-export async function subscribeToPush() {
-  if (!supported() || Notification.permission !== "granted") return false;
-  const reg = await registration();
-  if (!reg) return false;
-  const { data } = await api.get("/push/public-key");
-  const applicationServerKey = urlBase64ToUint8Array(data.public_key);
-  let subscription = await reg.pushManager.getSubscription();
-  if (subscription && !applicationServerKeyMatches(subscription, applicationServerKey)) {
-    console.warn("Push VAPID key changed; rotating browser subscription");
-    await api.post("/push/unsubscribe", { endpoint: subscription.endpoint });
-    await subscription.unsubscribe();
-    subscription = null;
-  }
-  subscription = subscription || await reg.pushManager.subscribe({
-      userVisibleOnly: true,
-      applicationServerKey,
+/** Prepare registration, server key, and any existing subscription before a user clicks. */
+export function preparePushSubscription() {
+  if (!supported()) return Promise.resolve(null);
+  if (!preparedPushContextPromise) {
+    preparedPushContextPromise = Promise.all([
+      registration(),
+      api.get("/push/public-key"),
+    ]).then(async ([reg, { data }]) => {
+      if (!reg) return null;
+      const applicationServerKey = urlBase64ToUint8Array(data.public_key);
+      let subscription = await reg.pushManager.getSubscription();
+      if (subscription && !applicationServerKeyMatches(subscription, applicationServerKey)) {
+        console.warn("Push VAPID key changed; rotating browser subscription");
+        await api.post("/push/unsubscribe", { endpoint: subscription.endpoint });
+        await subscription.unsubscribe();
+        subscription = null;
+      }
+      return { reg, applicationServerKey, subscription };
+    }).catch((error) => {
+      preparedPushContextPromise = null;
+      throw error;
     });
+  }
+  return preparedPushContextPromise;
+}
+
+function savePushSubscription(subscription) {
   const payload = subscription.toJSON();
   const hasEndpoint = Boolean(payload.endpoint);
   const hasP256dh = Boolean(payload.keys?.p256dh);
@@ -57,27 +68,60 @@ export async function subscribeToPush() {
   if (!hasEndpoint || !hasP256dh || !hasAuth) {
     throw new Error("Push subscription is missing its endpoint or encryption keys.");
   }
-  try {
-    await api.post("/push/subscribe", payload);
-    console.info("Push subscription registered with backend");
-  } catch (error) {
+  return api.post("/push/subscribe", payload).then(() => {
+      console.info("Push subscription registered with backend");
+      return true;
+    }).catch((error) => {
     console.error("Push subscription registration failed", {
       status: error.response?.status || null,
       error: error.name,
     });
-    throw error;
-  }
-  return true;
+      throw error;
+    });
+}
+
+/** Subscribes on a user gesture and binds this browser to the signed-in user. */
+export function subscribeToPush() {
+  if (!supported() || Notification.permission !== "granted") return Promise.resolve(false);
+  return preparePushSubscription().then((context) => {
+    if (!context) return false;
+    const subscriptionPromise = context.subscription
+      ? Promise.resolve(context.subscription)
+      : context.reg.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: context.applicationServerKey,
+      });
+    return subscriptionPromise.then((subscription) => {
+      context.subscription = subscription;
+      return savePushSubscription(subscription);
+    });
+  });
+}
+
+/** Rebind an existing subscription after login without creating one outside a click. */
+export function syncExistingPushSubscription() {
+  if (!supported() || Notification.permission !== "granted") return Promise.resolve(false);
+  return preparePushSubscription().then((context) => {
+    if (!context?.subscription) return false;
+    return savePushSubscription(context.subscription);
+  });
 }
 
 /** Asks for permission when it has not been decided yet, then subscribes. Returns the permission state. */
-export async function enablePush() {
-  if (!supported()) return "unsupported";
-  const permission = Notification.permission === "default"
-    ? await Notification.requestPermission()
-    : Notification.permission;
-  if (permission === "granted") await subscribeToPush();
-  return permission;
+export function enablePush() {
+  if (!supported()) return Promise.resolve("unsupported");
+  let permissionRequest;
+  try {
+    permissionRequest = Notification.permission === "default"
+      ? Notification.requestPermission()
+      : Promise.resolve(Notification.permission);
+  } catch (error) {
+    return Promise.reject(error);
+  }
+  return permissionRequest.then((permission) => {
+    if (permission !== "granted") return permission;
+    return subscribeToPush().then(() => permission);
+  });
 }
 
 /** Called on logout so the next person on this device does not receive the previous user's pushes. */
