@@ -105,6 +105,16 @@ function playNotificationSound() {
   if (playback) playback.catch((error) => console.warn("Notification sound could not play:", error));
 }
 
+function pushFailureDetails(error, stage) {
+  return {
+    stage,
+    name: error?.name || "Error",
+    message: error?.message || String(error),
+    code: error?.code ?? null,
+    status: error?.response?.status ?? null,
+  };
+}
+
 function NotificationBell({ onPermissionChange, onPushContextReady, requiresHomeScreen, pushPermission, pushContextReady }) {
   const [items, setItems] = useState([]);
   const seenIds = useRef(null);
@@ -213,8 +223,9 @@ function NotificationBell({ onPermissionChange, onPushContextReady, requiresHome
       if (permission === "granted") toast.success(t("notifications.permissionGranted"));
       else if (permission === "denied") toast.error(t("notifications.permissionDenied"));
     }).catch((error) => {
-      console.error("Could not request browser notification permission:", error);
-      toast.error(t("notifications.permissionError"));
+      const details = pushFailureDetails(error, "notification-bell-click");
+      console.error("Browser notification permission/push setup failed", details);
+      toast.error(`${t("notifications.permissionError")} (${details.name}: ${details.message})`);
     });
   };
 
@@ -336,20 +347,31 @@ export function AppLayout({ children }) {
   const showHomeScreenHint = () => toast.info(t("pwa.iosHint"));
 
   const requestPushPermission = () => {
-    const permissionRequest = Notification.requestPermission();
+    let permissionRequest;
+    try {
+      permissionRequest = Notification.requestPermission();
+    } catch (error) {
+      const details = pushFailureDetails(error, "requestPermission");
+      console.error("Push permission request failed synchronously", details);
+      toast.error(`${t("notifications.permissionError")} (${details.name}: ${details.message})`);
+      return;
+    }
     setPushBusy(true);
+    let stage = "requestPermission";
     permissionRequest.then((permission) => {
       setPushPermission(permission);
       if (permission === "granted") {
+        stage = "enablePush/subscribe";
         return enablePush().then(() => {
           toast.success(t("notifications.permissionGranted"));
         });
       }
       if (permission === "denied") toast.error(t("notifications.permissionDenied"));
     }).catch((error) => {
-      console.error("Could not enable push notifications:", error);
+      const details = pushFailureDetails(error, stage);
+      console.error("Push permission flow failed", details);
       setPushPermission(typeof Notification === "undefined" ? "unsupported" : Notification.permission);
-      toast.error(t("notifications.permissionError"));
+      toast.error(`${t("notifications.permissionError")} (${details.name}: ${details.message})`);
     }).finally(() => {
       setPushBusy(false);
     });
