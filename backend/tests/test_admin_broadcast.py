@@ -81,3 +81,11 @@ def test_broadcast_endpoints_require_admin(broadcast_client):
     history = client.get("/api/admin/broadcast-notification/history")
     assert response.status_code == 403
     assert history.status_code == 403
+
+
+def test_push_payload_titles_and_targets_cover_messages_and_broadcasts():
+    assert server.web_push.PUSH_TITLES["broadcast"]
+    assert server.web_push.PUSH_TITLES["message"]
+    assert server.web_push.push_url({"type": "broadcast"}, "retailer") == "/messages"
+    assert server.web_push.push_url({"type": "message"}, "supplier") == "/messages"
+    assert server.web_push.push_url({"type": "support"}, "retailer") == "/support"

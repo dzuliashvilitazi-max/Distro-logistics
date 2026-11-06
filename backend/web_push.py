@@ -31,6 +31,9 @@ PUSH_TITLES = {
     "connection_declined": "პარტნიორობა უარყოფილია",
     "connection_removed": "პარტნიორობა გაუქმდა",
     "order": "შეკვეთა",
+    "broadcast": "მნიშვნელოვანი შეტყობინება",
+    "message": "ახალი შეტყობინება",
+    "support": "მხარდაჭერის პასუხი",
 }
 
 _vapid_cache: Optional[tuple] = None
@@ -92,8 +95,10 @@ def push_url(notification: dict, role: str) -> str:
         return f"/supplier/invoices?invoice={quote(notification['invoice_id'], safe='')}"
     if ntype == "approval" and role == "admin":
         return "/admin/users"
-    if ntype == "message":
+    if ntype in {"message", "broadcast"}:
         return "/messages"
+    if ntype == "support":
+        return "/support"
     return {"supplier": "/supplier/orders", "admin": "/admin/orders"}.get(role, "/orders")
 
 
