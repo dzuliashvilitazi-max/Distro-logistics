@@ -8472,10 +8472,27 @@ async def create_support_ticket(body: SupportTicketIn, user: dict = Depends(get_
     }
     await db.support_tickets.insert_one(dict(ticket))
     type_ka = _SUPPORT_TYPE_KA.get(user_type, user_type)
-    admins = await db.users.find({"role": "admin"}, {"_id": 0, "id": 1}).to_list(100)
+    admins = await db.users.find(
+        {"role": "admin", "status": {"$ne": "suspended"}},
+        {"_id": 0, "id": 1, "name": 1, "business_name": 1, "email": 1, "phone": 1, "role": 1},
+    ).to_list(100)
     for a in admins:
         await notify(a["id"], f"მხარდაჭერა [{type_ka}] {ticket['user_name']}: {ticket['message'][:120]}", "support")
-    return ticket
+    admin = admins[0] if admins else None
+    if admin:
+        await _save_registered_contact(user["id"], admin)
+        await _save_registered_contact(admin["id"], user)
+        await db.messages.insert_one({
+            "id": str(uuid.uuid4()),
+            "from_id": user["id"],
+            "from_name": ticket["user_name"],
+            "to_id": admin["id"],
+            "text": ticket["message"],
+            "order_id": "",
+            "read": False,
+            "created_at": ticket["created_at"],
+        })
+    return {**ticket, "admin_id": admin["id"] if admin else None}
 
 
 @api.get("/support/tickets")

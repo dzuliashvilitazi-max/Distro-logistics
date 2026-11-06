@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { api, formatApiError } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
 import { Bot, Send, LifeBuoy, Loader2 } from "lucide-react";
@@ -11,6 +12,7 @@ const GREETING = "გამარჯობა! მე ვარ „დისტ�
 
 export default function Support() {
   const { user } = useAuth();
+  const navigate = useNavigate();
   const [chat, setChat] = useState([{ from: "bot", text: GREETING }]);
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
@@ -41,10 +43,14 @@ export default function Support() {
   const sendTicket = async () => {
     if (ticketText.trim().length < 3) return;
     try {
-      await api.post("/support/tickets", { message: ticketText.trim() });
+      const { data: ticket } = await api.post("/support/tickets", { message: ticketText.trim() });
       setTicketText(""); setSuggestAdmin(false);
-      toast.success("შეტყობინება გაეგზავნა ადმინისტრატორს");
       loadTickets();
+      if (ticket.admin_id) {
+        navigate(`/messages?contactId=${encodeURIComponent(ticket.admin_id)}`);
+      } else {
+        toast.success("შეტყობინება გაეგზავნა ადმინისტრატორს");
+      }
     } catch (err) { toast.error(formatApiError(err.response?.data?.detail)); }
   };
 

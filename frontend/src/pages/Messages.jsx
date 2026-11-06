@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { api, formatApiError } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
 import { useI18n } from "@/context/I18nContext";
+import { useSearchParams } from "react-router-dom";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { MessageSquare, Plus, Search, Send, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -11,6 +12,8 @@ import { toast } from "sonner";
 
 export default function Messages() {
   const { user } = useAuth();
+  const [searchParams] = useSearchParams();
+  const requestedContactId = searchParams.get("contactId");
   const i18n = useI18n();
   const t = i18n?.t || ((key) => key);
   const QUICK = [t("msg.q1"), t("msg.q2"), t("msg.q3"), t("msg.q4")];
@@ -31,8 +34,10 @@ export default function Messages() {
       const { data } = await api.get("/contacts");
       setContacts(data);
       setActive((current) => current
-        ? data.find((contact) => contact.id === current.id) || null
-        : data[0] || null);
+        ? data.find((contact) => contact.id === requestedContactId)
+          || data.find((contact) => contact.id === current.id)
+          || null
+        : data.find((contact) => contact.id === requestedContactId) || data[0] || null);
     } catch (error) {
       console.error("Could not load messaging contacts:", error);
       toast.error(formatApiError(error.response?.data?.detail) || t("msg.contactsLoadError"));

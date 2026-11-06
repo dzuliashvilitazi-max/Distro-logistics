@@ -100,6 +100,7 @@ def setup_contact_test(monkeypatch):
         "saved_contacts": saved_contacts,
         "messages": messages,
         "terms_acceptances": MemoryCollection(),
+        "support_tickets": MemoryCollection(),
     })())
     server.app.dependency_overrides[server.get_current_user] = lambda: owner
     return TestClient(server.app), owner
@@ -225,6 +226,35 @@ def test_message_from_unknown_contact_is_stored_and_creates_chat(monkeypatch):
         )
         assert any(
             item["owner_id"] == owner["id"] and item["contact_id"] == "retailer-1"
+            for item in server.db.saved_contacts.rows
+        )
+    finally:
+        server.app.dependency_overrides.pop(server.get_current_user, None)
+
+
+def test_support_ticket_is_saved_and_opens_admin_chat(monkeypatch):
+    client, owner = setup_contact_test(monkeypatch)
+    admin = {
+        "id": "admin-1", "role": "admin", "status": "active",
+        "name": "Platform Admin", "business_name": "Distro Admin", "phone": "+995555000005",
+    }
+    server.db.users.rows.append(admin)
+
+    async def no_op_notify(*args, **kwargs):
+        return None
+
+    monkeypatch.setattr(server, "notify", no_op_notify)
+    try:
+        response = client.post("/api/support/tickets", json={"message": "Please help me"})
+
+        assert response.status_code == 200
+        assert response.json()["admin_id"] == "admin-1"
+        assert server.db.support_tickets.rows[0]["message"] == "Please help me"
+        assert server.db.messages.rows[0]["from_id"] == owner["id"]
+        assert server.db.messages.rows[0]["to_id"] == "admin-1"
+        assert server.db.messages.rows[0]["text"] == "Please help me"
+        assert any(
+            item["owner_id"] == owner["id"] and item["contact_id"] == "admin-1"
             for item in server.db.saved_contacts.rows
         )
     finally:
