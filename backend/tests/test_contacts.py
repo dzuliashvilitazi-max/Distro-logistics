@@ -1,4 +1,5 @@
 import copy
+import asyncio
 import re
 import sys
 from pathlib import Path
@@ -33,6 +34,17 @@ def matches(document, query):
 class MemoryCursor:
     def __init__(self, rows):
         self.rows = rows
+
+    def __aiter__(self):
+        self.index = 0
+        return self
+
+    async def __anext__(self):
+        if self.index >= len(self.rows):
+            raise StopAsyncIteration
+        row = copy.deepcopy(self.rows[self.index])
+        self.index += 1
+        return row
 
     def sort(self, field, direction=1):
         self.rows.sort(key=lambda row: row.get(field, ""), reverse=direction < 0)
@@ -204,6 +216,27 @@ def test_registration_adds_admin_to_new_account_contacts(monkeypatch):
             item["owner_id"] == new_user["id"] and item["contact_id"] == "admin-1"
             and item["kind"] == "registered" for item in saved
         )
+    finally:
+        server.app.dependency_overrides.pop(server.get_current_user, None)
+
+
+def test_startup_backfill_adds_admin_to_existing_users_idempotently(monkeypatch):
+    client, owner = setup_contact_test(monkeypatch)
+    server.db.users.rows.append({
+        "id": "admin-1", "role": "admin", "status": "active",
+        "name": "Platform Admin", "business_name": "Distro Admin",
+    })
+    try:
+        asyncio.run(server.backfill_existing_admin_contacts())
+        asyncio.run(server.backfill_existing_admin_contacts())
+
+        for existing_user in server.db.users.rows:
+            if existing_user["id"] == "admin-1":
+                continue
+            assert sum(
+                contact["owner_id"] == existing_user["id"] and contact["contact_id"] == "admin-1"
+                for contact in server.db.saved_contacts.rows
+            ) == 1
     finally:
         server.app.dependency_overrides.pop(server.get_current_user, None)
 

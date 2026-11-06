@@ -7770,6 +7770,19 @@ async def _ensure_admin_contacts(owner_id: str) -> None:
         await _save_registered_contact(owner_id, admin)
 
 
+async def backfill_existing_admin_contacts() -> None:
+    admins = await db.users.find(
+        {"role": "admin", "status": {"$ne": "suspended"}},
+        {"_id": 0, "id": 1, "name": 1, "business_name": 1, "email": 1, "phone": 1, "role": 1},
+    ).to_list(100)
+    if not admins:
+        return
+    users = db.users.find({}, {"_id": 0, "id": 1})
+    async for user in users:
+        for admin in admins:
+            await _save_registered_contact(user["id"], admin)
+
+
 @api.get("/contacts")
 async def contacts(user: dict = Depends(get_current_user)):
     # Include both transactional contacts and contacts explicitly saved by this user.
@@ -10621,6 +10634,7 @@ async def run_background_startup():
 
     await asyncio.gather(
         step(backfill_product_categories, "product category backfill"),
+        step(backfill_existing_admin_contacts, "existing admin contacts"),
         step(ensure_startup_indexes, "indexes"),
         step(lambda: migrate_store_finance(db), "store finance"),
         step(lambda: migrate_store_branches(db), "store branches"),
@@ -10664,7 +10678,6 @@ async def startup():
     await db.invoices.create_index("payment_reference_normalized", unique=True, sparse=True)
     await db.invoice_bank_transactions.create_index("transaction_id", unique=True)
     await db.users.create_index("email", unique=True)
-    app.state.index_task = asyncio.create_task(run_background_startup())
     try:
         await purge_demo_accounts(db)
     except Exception:
@@ -10675,6 +10688,7 @@ async def startup():
             logger.info("Primary admin account %s", admin_result)
     except Exception:
         logger.exception("Could not ensure the primary admin account")
+    app.state.index_task = asyncio.create_task(run_background_startup())
     if os.environ.get("BILLING_SCHEDULER", "1") != "0":
         app.state.billing_task = asyncio.create_task(billing_scheduler_loop())
 
