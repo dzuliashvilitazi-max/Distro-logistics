@@ -57,7 +57,7 @@ export function registerServiceWorker() {
   // Service worker is production-only so dev hot reload is never served stale files.
   if (import.meta.env.PROD) {
     window.addEventListener("load", () => {
-      navigator.serviceWorker.register("/sw.js").catch((error) => {
+      navigator.serviceWorker.register("/sw.js", { scope: "/" }).catch((error) => {
         console.error("Service worker registration failed:", error);
       });
     });

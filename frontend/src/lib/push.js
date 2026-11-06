@@ -14,7 +14,7 @@ async function registration() {
   const existing = await navigator.serviceWorker.getRegistration();
   if (existing) return existing.active ? existing : navigator.serviceWorker.ready;
   if (!import.meta.env.PROD) return null;
-  await navigator.serviceWorker.register("/sw.js");
+  await navigator.serviceWorker.register("/sw.js", { scope: "/" });
   return navigator.serviceWorker.ready;
 }
 
