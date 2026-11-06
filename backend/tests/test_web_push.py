@@ -1,4 +1,5 @@
 import asyncio
+import json
 import logging
 
 import pytest
@@ -55,6 +56,9 @@ def test_deliver_uses_users_subscription_and_logs_sanitized_response(monkeypatch
     }
     assert sent[0]["vapid_private_key"] == "test-vapid"
     assert sent[0]["vapid_claims"] == {"sub": "mailto:push@example.test"}
+    payload = json.loads(sent[0]["data"])
+    assert payload["title"] == web_push.PUSH_TITLES["message"]
+    assert payload["body"] == "Hello"
     assert "Loaded Web Push subscriptions user=recipient-1 count=2" in caplog.text
     assert "status=201" in caplog.text
     assert "accepted" in caplog.text
