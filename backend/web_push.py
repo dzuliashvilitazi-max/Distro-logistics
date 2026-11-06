@@ -5,9 +5,11 @@ once and persisted in the `push_config` collection so every worker and restart s
 """
 import asyncio
 import base64
+import hashlib
 import json
 import logging
 import os
+import re
 from typing import Optional
 from urllib.parse import quote
 
@@ -102,10 +104,29 @@ def push_url(notification: dict, role: str) -> str:
     return {"supplier": "/supplier/orders", "admin": "/admin/orders"}.get(role, "/orders")
 
 
+def _subscription_ref(subscription: dict) -> str:
+    endpoint = str(subscription.get("endpoint", ""))
+    return hashlib.sha256(endpoint.encode()).hexdigest()[:12] if endpoint else "missing"
+
+
+def _safe_push_detail(value, subscription: dict, limit: int = 500) -> str:
+    detail = str(value or "").replace("\r", " ").replace("\n", " ")
+    keys = subscription.get("keys") or {}
+    for secret in (subscription.get("endpoint"), keys.get("p256dh"), keys.get("auth")):
+        if secret:
+            detail = detail.replace(str(secret), "[REDACTED]")
+    detail = re.sub(
+        r"(?i)(authorization|token|secret|p256dh|auth)(\s*[:=]\s*)[^\s,;]+",
+        r"\1\2[REDACTED]", detail,
+    )
+    return detail[:limit]
+
+
 def _send_one(subscription: dict, payload: str, vapid: Vapid01) -> Optional[int]:
     """Blocking send; returns the HTTP status when the subscription is gone, otherwise None."""
+    subscription_ref = _subscription_ref(subscription)
     try:
-        webpush(
+        response = webpush(
             subscription_info={"endpoint": subscription["endpoint"], "keys": subscription["keys"]},
             data=payload,
             vapid_private_key=vapid,
@@ -113,13 +134,32 @@ def _send_one(subscription: dict, payload: str, vapid: Vapid01) -> Optional[int]
             ttl=86400,
             headers={"Urgency": "high"},
         )
+        logger.info(
+            "Web push response subscription=%s status=%s reason=%s body=%r",
+            subscription_ref,
+            getattr(response, "status_code", None),
+            getattr(response, "reason", None),
+            _safe_push_detail(getattr(response, "text", ""), subscription),
+        )
     except WebPushException as exc:
-        status = getattr(exc.response, "status_code", None)
+        response = getattr(exc, "response", None)
+        status = getattr(response, "status_code", None)
+        logger.warning(
+            "Web push rejected subscription=%s error=%s status=%s reason=%s body=%r detail=%r",
+            subscription_ref,
+            type(exc).__name__,
+            status,
+            getattr(response, "reason", None),
+            _safe_push_detail(getattr(response, "text", ""), subscription),
+            _safe_push_detail(exc, subscription),
+        )
         if status in (404, 410):
             return status
-        logger.warning("Web push failed (%s): %s", status, exc)
-    except Exception:
-        logger.exception("Unexpected web push failure")
+    except Exception as exc:
+        logger.error(
+            "Unexpected web push error subscription=%s error=%s detail=%r",
+            subscription_ref, type(exc).__name__, _safe_push_detail(exc, subscription),
+        )
     return None
 
 
@@ -127,7 +167,22 @@ async def deliver(db, notification: dict) -> None:
     try:
         user_id = notification["user_id"]
         subscriptions = await db.push_subscriptions.find({"user_id": user_id}, {"_id": 0}).to_list(50)
+        logger.info("Loaded Web Push subscriptions user=%s count=%d", user_id, len(subscriptions))
         if not subscriptions:
+            return
+        valid_subscriptions = []
+        for subscription in subscriptions:
+            keys = subscription.get("keys") or {}
+            if not subscription.get("endpoint") or not keys.get("p256dh") or not keys.get("auth"):
+                logger.warning(
+                    "Skipping malformed Web Push subscription user=%s ref=%s endpoint=%s p256dh=%s auth=%s",
+                    user_id, _subscription_ref(subscription), bool(subscription.get("endpoint")),
+                    bool(keys.get("p256dh")), bool(keys.get("auth")),
+                )
+                continue
+            valid_subscriptions.append(subscription)
+        logger.info("Valid Web Push subscriptions user=%s count=%d", user_id, len(valid_subscriptions))
+        if not valid_subscriptions:
             return
         user = await db.users.find_one({"id": user_id}, {"_id": 0, "role": 1}) or {}
         vapid, _ = await get_vapid(db)
@@ -138,10 +193,16 @@ async def deliver(db, notification: dict) -> None:
             "tag": f"n-{notification['id']}",
             "notification_id": notification["id"],
         }, ensure_ascii=False)
-        results = await asyncio.gather(*(asyncio.to_thread(_send_one, s, payload, vapid) for s in subscriptions))
-        gone = [s["endpoint"] for s, status in zip(subscriptions, results) if status]
+        results = await asyncio.gather(
+            *(asyncio.to_thread(_send_one, subscription, payload, vapid) for subscription in valid_subscriptions)
+        )
+        gone = [subscription["endpoint"] for subscription, status in zip(valid_subscriptions, results) if status]
         if gone:
             await db.push_subscriptions.delete_many({"endpoint": {"$in": gone}})
+        logger.info(
+            "Web Push delivery finished user=%s attempted=%d expired=%d",
+            user_id, len(valid_subscriptions), len(gone),
+        )
     except Exception:
         logger.exception("Could not deliver web push")
 
