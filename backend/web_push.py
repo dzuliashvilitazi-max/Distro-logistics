@@ -53,6 +53,21 @@ def _public_key_b64(vapid: Vapid01) -> str:
     return _b64url(raw)
 
 
+def _normalize_public_key(value: str) -> str:
+    return value.strip().rstrip("=").replace("+", "-").replace("/", "_")
+
+
+def _vapid_subject() -> str:
+    subject = os.environ.get("VAPID_SUBJECT", "").strip()
+    if not subject:
+        subject = os.environ.get("VAPID_CLAIM_EMAIL", "admin@distro.local").strip()
+    if subject.startswith("mailto:") or subject.startswith("https://"):
+        return subject
+    if ":" in subject or not subject:
+        raise ValueError("VAPID_SUBJECT must be a mailto: address or HTTPS URL.")
+    return f"mailto:{subject}"
+
+
 async def get_vapid(db) -> tuple:
     """Return (Vapid01 signer, public application-server key as base64url)."""
     global _vapid_cache
@@ -74,7 +89,19 @@ async def get_vapid(db) -> tuple:
             )
             doc = await db.push_config.find_one({"id": "vapid"}, {"_id": 0})
         vapid = Vapid01.from_pem(doc["private_pem"].encode())
-    _vapid_cache = (vapid, _public_key_b64(vapid))
+    public_key = _public_key_b64(vapid)
+    configured_public_key = os.environ.get("VAPID_PUBLIC_KEY", "").strip()
+    if configured_public_key and _normalize_public_key(configured_public_key) != _normalize_public_key(public_key):
+        logger.error("VAPID_PUBLIC_KEY does not match the public key derived from the configured private key.")
+        raise RuntimeError("VAPID_PUBLIC_KEY does not match VAPID_PRIVATE_KEY.")
+    subject = _vapid_subject()
+    logger.info(
+        "VAPID signer ready source=%s public_key_configured=%s subject_scheme=%s",
+        "environment" if private else "database",
+        bool(configured_public_key),
+        subject.split(":", 1)[0],
+    )
+    _vapid_cache = (vapid, public_key)
     return _vapid_cache
 
 
@@ -130,7 +157,7 @@ def _send_one(subscription: dict, payload: str, vapid: Vapid01) -> Optional[int]
             subscription_info={"endpoint": subscription["endpoint"], "keys": subscription["keys"]},
             data=payload,
             vapid_private_key=vapid,
-            vapid_claims={"sub": os.environ.get("VAPID_SUBJECT", "mailto:admin@distro.local")},
+            vapid_claims={"sub": _vapid_subject()},
             ttl=86400,
             headers={"Urgency": "high"},
         )

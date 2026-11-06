@@ -1,8 +1,10 @@
 import asyncio
 import logging
 
+import pytest
 from fastapi.testclient import TestClient
 from mongomock_motor import AsyncMongoMockClient
+from py_vapid import Vapid01
 
 import server
 import web_push
@@ -107,3 +109,25 @@ def test_send_one_logs_webpush_exception_response_and_returns_expired_status(mon
     assert endpoint not in caplog.text
     assert p256dh not in caplog.text
     assert auth not in caplog.text
+
+
+def test_get_vapid_validates_configured_public_key_matches_private(monkeypatch):
+    signer = Vapid01()
+    signer.generate_keys()
+    private_pem = signer.private_pem().decode()
+    public_key = web_push._public_key_b64(signer)
+    monkeypatch.setattr(web_push, "_vapid_cache", None)
+    monkeypatch.setenv("VAPID_PRIVATE_KEY", private_pem)
+    monkeypatch.setenv("VAPID_PUBLIC_KEY", public_key)
+    monkeypatch.setenv("VAPID_CLAIM_EMAIL", "push@example.test")
+    monkeypatch.delenv("VAPID_SUBJECT", raising=False)
+
+    _vapid, returned_public_key = asyncio.run(web_push.get_vapid(None))
+
+    assert returned_public_key == public_key
+    assert web_push._vapid_subject() == "mailto:push@example.test"
+
+    monkeypatch.setattr(web_push, "_vapid_cache", None)
+    monkeypatch.setenv("VAPID_PUBLIC_KEY", "a-different-public-key")
+    with pytest.raises(RuntimeError, match="does not match"):
+        asyncio.run(web_push.get_vapid(None))
