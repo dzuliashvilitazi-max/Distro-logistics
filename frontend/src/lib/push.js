@@ -43,6 +43,13 @@ export function preparePushSubscription() {
     ]).then(async ([reg, { data }]) => {
       if (!reg) return null;
       const applicationServerKey = urlBase64ToUint8Array(data.public_key);
+      if (!(applicationServerKey instanceof Uint8Array) || applicationServerKey.length === 0) {
+        throw new TypeError("VAPID public key did not convert to a non-empty Uint8Array.");
+      }
+      console.info("VAPID application server key prepared", {
+        type: applicationServerKey.constructor.name,
+        length: applicationServerKey.length,
+      });
       let subscription = await reg.pushManager.getSubscription();
       if (subscription && !applicationServerKeyMatches(subscription, applicationServerKey)) {
         console.warn("Push VAPID key changed; rotating browser subscription");
@@ -85,16 +92,44 @@ export function subscribeToPush() {
   if (!supported() || Notification.permission !== "granted") return Promise.resolve(false);
   return preparePushSubscription().then((context) => {
     if (!context) return false;
-    const subscriptionPromise = context.subscription
-      ? Promise.resolve(context.subscription)
-      : context.reg.pushManager.subscribe({
-        userVisibleOnly: true,
-        applicationServerKey: context.applicationServerKey,
+    let subscriptionPromise = Promise.resolve(context.subscription);
+    if (!context.subscription) {
+      try {
+        subscriptionPromise = context.reg.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: context.applicationServerKey,
+        });
+      } catch (error) {
+        logSubscribeError(error, context.applicationServerKey);
+        return Promise.reject(error);
+      }
+      subscriptionPromise = subscriptionPromise.catch((error) => {
+        logSubscribeError(error, context.applicationServerKey);
+        throw error;
       });
+    }
     return subscriptionPromise.then((subscription) => {
       context.subscription = subscription;
       return savePushSubscription(subscription);
     });
+  });
+}
+
+function logSubscribeError(error, applicationServerKey) {
+  let standalone = false;
+  try {
+    standalone = navigator.standalone === true || window.matchMedia("(display-mode: standalone)").matches;
+  } catch {
+    standalone = navigator.standalone === true;
+  }
+  console.error("PushManager.subscribe failed", {
+    name: error?.name || "Error",
+    message: error?.message || String(error),
+    code: error?.code ?? null,
+    permission: typeof Notification === "undefined" ? "unsupported" : Notification.permission,
+    standalone,
+    applicationServerKeyType: applicationServerKey?.constructor?.name || "unknown",
+    applicationServerKeyLength: applicationServerKey?.length || 0,
   });
 }
 
