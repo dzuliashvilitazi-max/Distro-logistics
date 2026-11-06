@@ -75,7 +75,11 @@ def test_push_subscribe_stores_user_endpoint_and_keys(monkeypatch):
     client = TestClient(server.app)
     client.headers["Authorization"] = f"Bearer {server.create_token('recipient-1', {'role': 'retailer'})}"
     endpoint = "https://push.example.test/device-endpoint"
-    payload = {"endpoint": endpoint, "keys": {"p256dh": "p256dh-value", "auth": "auth-value"}}
+    payload = {
+        "endpoint": endpoint,
+        "expirationTime": None,
+        "keys": {"p256dh": "p256dh-value", "auth": "auth-value"},
+    }
 
     response = client.post("/api/push/subscribe", json=payload)
     stored = asyncio.run(database.push_subscriptions.find_one({"endpoint": endpoint}, {"_id": 0}))
@@ -84,6 +88,38 @@ def test_push_subscribe_stores_user_endpoint_and_keys(monkeypatch):
     assert stored["user_id"] == "recipient-1"
     assert stored["endpoint"] == endpoint
     assert stored["keys"] == payload["keys"]
+
+
+def test_push_subscribe_logs_sanitized_traceback_on_mongo_failure(monkeypatch, caplog):
+    database = AsyncMongoMockClient()["web_push_subscribe_failure_test"]
+    asyncio.run(database.users.insert_one({"id": "recipient-1", "role": "retailer"}))
+
+    class FailingSubscriptions:
+        async def update_one(self, *_args, **_kwargs):
+            raise RuntimeError("write failed for https://push.example.test/private-endpoint")
+
+    class FailingDatabase:
+        users = database.users
+        push_subscriptions = FailingSubscriptions()
+
+    monkeypatch.setattr(server, "db", FailingDatabase())
+    client = TestClient(server.app, raise_server_exceptions=False)
+    client.headers["Authorization"] = f"Bearer {server.create_token('recipient-1', {'role': 'retailer'})}"
+    caplog.set_level(logging.ERROR, logger="distro")
+
+    response = client.post("/api/push/subscribe", json={
+        "endpoint": "https://push.example.test/private-endpoint",
+        "keys": {"p256dh": "private-p256dh", "auth": "private-auth"},
+    })
+
+    assert response.status_code == 500
+    assert "Push subscription persistence failed" in caplog.text
+    assert "RuntimeError" in caplog.text
+    assert "Traceback (most recent call last)" in caplog.text
+    assert "write failed" in caplog.text
+    assert "private-endpoint" not in caplog.text
+    assert "private-p256dh" not in caplog.text
+    assert "private-auth" not in caplog.text
 
 
 def test_send_one_logs_webpush_exception_response_and_returns_expired_status(monkeypatch, caplog):

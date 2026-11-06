@@ -12,6 +12,7 @@ import bcrypt
 import logging
 import asyncio
 import time
+import traceback
 from datetime import date, datetime, timezone, timedelta
 from html import escape as html_escape
 from typing import Any, Dict, List, Optional
@@ -8728,12 +8729,22 @@ async def push_public_key(user: dict = Depends(get_current_user)):
 @api.post("/push/subscribe")
 async def push_subscribe(body: PushSubscriptionIn, user: dict = Depends(get_current_user)):
     # An endpoint identifies one browser profile; re-binding it moves pushes to whoever is signed in now.
-    await db.push_subscriptions.update_one(
-        {"endpoint": body.endpoint},
-        {"$set": {"user_id": user["id"], "keys": body.keys.model_dump(), "updated_at": now_iso()},
-         "$setOnInsert": {"created_at": now_iso()}},
-        upsert=True,
-    )
+    try:
+        await db.push_subscriptions.update_one(
+            {"endpoint": body.endpoint},
+            {"$set": {"user_id": user["id"], "keys": body.keys.model_dump(), "updated_at": now_iso()},
+             "$setOnInsert": {"created_at": now_iso()}},
+            upsert=True,
+        )
+    except Exception as error:
+        details = traceback.format_exc()
+        for secret in (body.endpoint, body.keys.p256dh, body.keys.auth):
+            details = details.replace(secret, "[REDACTED]")
+        logger.error(
+            "Push subscription persistence failed user=%s error=%s traceback:\n%s",
+            user["id"], type(error).__name__, details,
+        )
+        raise HTTPException(500, "Could not save push subscription.") from error
     return {"ok": True}
 
 
