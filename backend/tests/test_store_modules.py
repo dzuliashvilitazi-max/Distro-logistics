@@ -252,6 +252,19 @@ def test_profile_contact_update_syncs_default_branch(monkeypatch):
         server.app.dependency_overrides.pop(server.get_current_user, None)
 
 
+def test_order_listing_splits_active_and_completed_statuses(monkeypatch):
+    client, _db = _install(monkeypatch, {"id": "store-1", "role": "retailer", "business_name": "Store"})
+    try:
+        active = client.get("/api/orders", params={"status": "active", "branch_id": "branch-1"})
+        completed = client.get("/api/orders", params={"status": "completed", "branch_id": "branch-1"})
+
+        assert active.status_code == completed.status_code == 200
+        assert active.json() == []
+        assert [order["id"] for order in completed.json()] == ["purchase-1"]
+    finally:
+        server.app.dependency_overrides.pop(server.get_current_user, None)
+
+
 def test_delivery_routing_uses_saved_coordinates_and_skips_missing_pins(monkeypatch):
     db = type("MemoryDB", (), {
         "orders": Collection([{"id": "order-found", "supplier_id": "supplier-1"}]),

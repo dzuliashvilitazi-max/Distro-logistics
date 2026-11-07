@@ -4623,7 +4623,13 @@ async def list_orders(
     if user["role"] == "retailer":
         selected_branch = await resolve_store_branch(user, branch_id)
         q["branch_id"] = selected_branch
-    if status and status != "All":
+    if status == "active":
+        q["status"] = {"$in": ["Pending", "Processing", "In Transit"]}
+    elif status == "routeable":
+        q["status"] = {"$in": ["Processing", "In Transit"]}
+    elif status in {"completed", "delivered"}:
+        q["status"] = "Delivered"
+    elif status and status != "All":
         q["status"] = status
     city_filter = _parse_city_filter(None, cities)
     if city_filter:
@@ -6622,14 +6628,34 @@ async def list_delivery_routes(
 ):
     require_supplier_permission(user, "routes")
     owner_id = supplier_owner_id(user)
-    query = {"supplier_id": owner_id}
+    query = {"supplier_id": owner_id, "status": {"$in": ["draft", "assigned"]}}
     selected_warehouse_id = await supplier_warehouse_id(user, warehouse_id)
     if selected_warehouse_id:
         query["warehouse_id"] = selected_warehouse_id
     routes = await db.delivery_routes.find(
         query, {"_id": 0, "share_token_hash": 0},
     ).sort("updated_at", -1).to_list(100)
-    return routes
+    active_routes = []
+    for route in routes:
+        if route.get("status") == "assigned" and await _complete_route_if_finished(route):
+            continue
+        active_routes.append(route)
+    return active_routes
+
+
+@api.get("/delivery-routes/history")
+async def list_completed_delivery_routes(
+    warehouse_id: Optional[str] = None, user: dict = Depends(require_role("supplier")),
+):
+    require_supplier_permission(user, "routes")
+    owner_id = supplier_owner_id(user)
+    query = {"supplier_id": owner_id, "status": "completed"}
+    selected_warehouse_id = await supplier_warehouse_id(user, warehouse_id)
+    if selected_warehouse_id:
+        query["warehouse_id"] = selected_warehouse_id
+    return await db.delivery_routes.find(
+        query, {"_id": 0, "share_token_hash": 0},
+    ).sort("completed_at", -1).to_list(100)
 
 
 async def _supplier_live_driver_snapshot(supplier_id: str, warehouse_id: Optional[str] = None) -> List[dict]:
@@ -6941,7 +6967,7 @@ async def delete_delivery_route(
 
 @api.get("/delivery-routes/shared/{share_token}")
 async def get_shared_delivery_route(share_token: str):
-    route = await _load_shared_route(share_token)
+    route = await _load_shared_route(share_token, allow_completed=True)
     route_order_ids = [stop.get("order_id") for stop in route.get("stops", []) if stop.get("order_id")]
     live_orders = {
         order["id"]: order for order in await db.orders.find({
@@ -6978,14 +7004,16 @@ async def get_shared_delivery_route(share_token: str):
         "provider": route["provider"],
         "status": route["status"],
         "started_at": route.get("started_at", ""),
+        "completed_at": route.get("completed_at", ""),
         "tracking_active": bool(route.get("tracking_active")),
     }
 
 
-async def _load_shared_route(share_token: str) -> dict:
+async def _load_shared_route(share_token: str, allow_completed: bool = False) -> dict:
     token_hash = hashlib.sha256(share_token.encode("utf-8")).hexdigest()
+    route_status = {"$in": ["assigned", "completed"]} if allow_completed else "assigned"
     route = await db.delivery_routes.find_one(
-        {"share_token_hash": token_hash, "status": "assigned"}, {"_id": 0},
+        {"share_token_hash": token_hash, "status": route_status}, {"_id": 0},
     )
     if not route:
         raise HTTPException(404, "This driver route link is invalid or has been revoked.")
@@ -6997,6 +7025,32 @@ async def _load_shared_route(share_token: str) -> dict:
     if expires_at <= datetime.now(timezone.utc):
         raise HTTPException(410, "This driver route link has expired.")
     return route
+
+
+async def _complete_route_if_finished(route: dict) -> bool:
+    order_ids = [stop.get("order_id") for stop in route.get("stops", []) if stop.get("order_id")]
+    if not order_ids:
+        return False
+    remaining = await db.orders.find({
+        "id": {"$in": order_ids}, "supplier_id": route["supplier_id"],
+        "status": {"$in": ["Processing", "In Transit"]},
+    }, {"_id": 0, "id": 1}).to_list(24)
+    if remaining:
+        return False
+    completed_at = now_iso()
+    result = await db.delivery_routes.update_one(
+        {"id": route["id"], "supplier_id": route["supplier_id"], "status": "assigned"},
+        {"$set": {
+            "status": "completed", "completed_at": completed_at,
+            "tracking_active": False, "updated_at": completed_at,
+        }, "$unset": {"driver_location": ""}},
+    )
+    if result.modified_count:
+        await location_sockets.broadcast_supplier(route["supplier_id"], route.get("warehouse_id"), {
+            "type": "route_completed", "route_id": route["id"],
+        })
+        return True
+    return False
 
 
 @api.post("/delivery-routes/shared/{share_token}/location")
@@ -7021,8 +7075,10 @@ async def update_shared_driver_location(share_token: str, body: DriverLocationIn
         "id": {"$in": order_ids}, "supplier_id": route["supplier_id"], "status": "In Transit",
     }, {"_id": 0}).to_list(24)
     if not active_orders:
+        await _complete_route_if_finished(route)
         await db.delivery_routes.update_one(
-            {"id": route["id"]}, {"$set": {"tracking_active": False}, "$unset": {"driver_location": ""}},
+            {"id": route["id"], "status": "assigned"},
+            {"$set": {"tracking_active": False}, "$unset": {"driver_location": ""}},
         )
         raise HTTPException(409, "No deliveries on this route are in transit.")
 
@@ -7071,12 +7127,7 @@ async def update_shared_driver_location(share_token: str, body: DriverLocationIn
                 "driver_name": route.get("driver_name", ""), "driver_location": location,
             })
     if not tracking_active:
-        await db.delivery_routes.update_one(
-            {"id": route["id"]}, {"$unset": {"driver_location": ""}},
-        )
-        await location_sockets.broadcast_supplier(route["supplier_id"], route.get("warehouse_id"), {
-            "type": "route_completed", "route_id": route["id"],
-        })
+        await _complete_route_if_finished(route)
     return {
         "ok": True, "recorded_at": recorded_at, "delivered_order_ids": delivered_order_ids,
         "tracking_active": tracking_active,
@@ -7170,6 +7221,8 @@ async def start_shared_delivery_route(share_token: str):
             "tracking_active": bool(orders) or bool(route.get("tracking_active")),
         }},
     )
+    if not orders and not route.get("tracking_active"):
+        await _complete_route_if_finished(route)
     return {
         "in_transit": [order["id"] for order in orders],
         "tracking_active": bool(orders) or bool(route.get("tracking_active")),
@@ -7224,13 +7277,7 @@ async def deliver_shared_route_order(share_token: str, oid: str, body: DriverDel
         "status": {"$in": ["Processing", "In Transit"]},
     }, {"_id": 0, "id": 1}).to_list(24)
     if not remaining:
-        await db.delivery_routes.update_one(
-            {"id": route["id"]},
-            {"$set": {"tracking_active": False, "updated_at": now_iso()}, "$unset": {"driver_location": ""}},
-        )
-        await location_sockets.broadcast_supplier(route["supplier_id"], route.get("warehouse_id"), {
-            "type": "route_completed", "route_id": route["id"],
-        })
+        await _complete_route_if_finished(route)
     return {"id": oid, "status": final["status"], "lifecycle_status": lifecycle_status(final), **order_payment_fields(final)}
 
 
@@ -7319,6 +7366,18 @@ async def apply_order_status(order: dict, status: str, actor_is_retailer: bool =
     result = await db.orders.update_one(query, {"$set": set_fields})
     if result.modified_count != 1:
         return False
+    route_collection = getattr(db, "delivery_routes", None)
+    if status in {"Delivered", "Cancelled"} and route_collection is not None:
+        route = await route_collection.find_one({
+            "supplier_id": order.get("supplier_id"), "status": "assigned",
+            "stops.order_id": order["id"],
+        }, {"_id": 0})
+        if route:
+            await route_collection.update_one(
+                {"id": route["id"], "status": "assigned", "stops.order_id": order["id"]},
+                {"$set": {"stops.$.status": status, "updated_at": now}},
+            )
+            await _complete_route_if_finished(route)
     await location_sockets.broadcast_order(order["id"], {"type": "status", "status": status})
     target = order["supplier_id"] if actor_is_retailer else order["retailer_id"]
     status_ka = {

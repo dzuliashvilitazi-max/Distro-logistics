@@ -167,7 +167,8 @@ def test_location_is_rejected_when_route_has_no_in_transit_orders(monkeypatch):
         assert response.status_code == 409
         assert db.delivery_routes.rows[0]["tracking_active"] is False
         assert "driver_location" not in db.delivery_routes.rows[0]
-        assert sockets.supplier_events == []
+        assert db.delivery_routes.rows[0]["status"] == "completed"
+        assert sockets.supplier_events[0][2]["type"] == "route_completed"
         assert sockets.order_events == []
     finally:
         teardown_function()
@@ -199,10 +200,14 @@ def test_geofence_delivers_nearby_stop_without_collecting_cash(monkeypatch):
         assert response.json()["delivered_order_ids"] == [ORDER["id"]]
         assert response.json()["tracking_active"] is False
         assert db.orders.rows[0]["status"] == "Delivered"
+        assert db.delivery_routes.rows[0]["status"] == "completed"
+        assert db.delivery_routes.rows[0]["completed_at"]
         assert "amount_paid" not in db.orders.rows[0]
         assert db.orders.rows[0]["paymentStatus"] == "UNPAID"
         assert db.orders.rows[0]["balance"] == 10
         assert db.delivery_routes.rows[0]["stops"][0]["status"] == "Delivered"
+        assert db.delivery_routes.rows[0]["status"] == "completed"
+        assert db.delivery_routes.rows[0]["completed_at"]
         assert (ORDER["id"], {"type": "status", "status": "Delivered"}) in sockets.order_events
         assert any(event.get("type") == "route_completed" for _, _, event in sockets.supplier_events)
     finally:
@@ -256,6 +261,60 @@ def test_manual_delivery_fallback_still_works(monkeypatch):
         assert db.orders.rows[0]["status"] == "Delivered"
         assert db.orders.rows[0]["delivered_on_credit"] is True
         assert "amount_paid" not in db.orders.rows[0]
+        assert db.delivery_routes.rows[0]["status"] == "completed"
+        shared_route = client.get(f"/api/delivery-routes/shared/{TOKEN}")
+        assert shared_route.status_code == 200
+        assert shared_route.json()["status"] == "completed"
+    finally:
+        teardown_function()
+
+
+def test_supplier_delivery_status_archives_the_assigned_route(monkeypatch):
+    client, db, _sockets = setup(monkeypatch)
+    supplier = {"id": "supplier-1", "role": "supplier", "supplier_access_role": "global_admin"}
+    server.app.dependency_overrides[server.get_current_user] = lambda: supplier
+    try:
+        response = client.put(f"/api/orders/{ORDER['id']}/status", json={"status": "Delivered"})
+
+        assert response.status_code == 200, response.text
+        assert db.orders.rows[0]["status"] == "Delivered"
+        assert db.delivery_routes.rows[0]["status"] == "completed"
+        assert db.delivery_routes.rows[0]["stops"][0]["status"] == "Delivered"
+        assert db.delivery_routes.rows[0]["completed_at"]
+    finally:
+        teardown_function()
+
+
+def test_active_route_list_excludes_completed_and_history_contains_only_completed(monkeypatch):
+    client, db, _sockets = setup(monkeypatch)
+    completed_route = copy.deepcopy(ROUTE)
+    completed_route.update({"id": "route-2", "status": "completed", "completed_at": "2026-11-06T10:00:00+00:00"})
+    db.delivery_routes.rows.append(completed_route)
+    supplier = {"id": "supplier-1", "role": "supplier", "supplier_access_role": "global_admin"}
+    server.app.dependency_overrides[server.get_current_user] = lambda: supplier
+    try:
+        active = client.get("/api/delivery-routes")
+        history = client.get("/api/delivery-routes/history")
+
+        assert active.status_code == history.status_code == 200
+        assert [route["id"] for route in active.json()] == ["route-1"]
+        assert [route["id"] for route in history.json()] == ["route-2"]
+    finally:
+        teardown_function()
+
+
+def test_active_route_list_archives_legacy_assigned_routes_with_terminal_orders(monkeypatch):
+    client, db, _sockets = setup(monkeypatch, order_status="Delivered")
+    supplier = {"id": "supplier-1", "role": "supplier", "supplier_access_role": "global_admin"}
+    server.app.dependency_overrides[server.get_current_user] = lambda: supplier
+    try:
+        active = client.get("/api/delivery-routes")
+        history = client.get("/api/delivery-routes/history")
+
+        assert active.status_code == history.status_code == 200
+        assert active.json() == []
+        assert [route["id"] for route in history.json()] == ["route-1"]
+        assert db.delivery_routes.rows[0]["status"] == "completed"
     finally:
         teardown_function()
 

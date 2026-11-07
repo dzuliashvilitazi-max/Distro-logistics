@@ -79,6 +79,7 @@ export default function DeliveryRoute() {
   const [error, setError] = useState("");
   const [googleMapError, setGoogleMapError] = useState(false);
   const [savedRoutes, setSavedRoutes] = useState([]);
+  const [historyRoutes, setHistoryRoutes] = useState([]);
   const [drivers, setDrivers] = useState([]);
   const [activeOrders, setActiveOrders] = useState([]);
   const [selectedOrderIds, setSelectedOrderIds] = useState([]);
@@ -101,8 +102,12 @@ export default function DeliveryRoute() {
   }, []);
   const loadSavedRoutes = useCallback(async () => {
     try {
-      const { data } = await api.get("/delivery-routes");
-      setSavedRoutes(data);
+      const [{ data: active }, { data: history }] = await Promise.all([
+        api.get("/delivery-routes"),
+        api.get("/delivery-routes/history"),
+      ]);
+      setSavedRoutes(active);
+      setHistoryRoutes(history);
     } catch (loadError) {
       console.error("Could not load saved delivery routes:", loadError);
       toast.error(formatApiError(loadError.response?.data?.detail) || t("route.loadRoutesError"));
@@ -113,10 +118,10 @@ export default function DeliveryRoute() {
     try {
       const [{ data: nextDrivers }, { data: nextOrders }] = await Promise.all([
         api.get("/drivers"),
-        api.get("/orders"),
+        api.get("/orders", { params: { status: "routeable" } }),
       ]);
       setDrivers(nextDrivers);
-      setActiveOrders(nextOrders.filter((order) => ["Processing", "In Transit"].includes(order.status)));
+      setActiveOrders(nextOrders);
     } catch (loadError) {
       console.error("Could not load dispatcher data:", loadError);
       toast.error(formatApiError(loadError.response?.data?.detail) || t("route.loadRoutesError"));
@@ -284,8 +289,11 @@ export default function DeliveryRoute() {
     .filter((savedRoute) => savedRoute.status === "assigned")
     .flatMap((savedRoute) => savedRoute.stops.map((stop) => stop.order_id)));
   const availableOrders = activeOrders.filter((order) => !assignedOrderIds.has(order.id));
-  const routesForDate = savedRoutes.filter((savedRoute) => savedRoute.scheduled_at
-    && toDateInputValue(new Date(savedRoute.scheduled_at)) === calendarDate);
+  const routesForDate = savedRoutes.filter((savedRoute) => savedRoute.status === "assigned"
+    && savedRoute.scheduled_at && toDateInputValue(new Date(savedRoute.scheduled_at)) === calendarDate);
+  const draftRoutesForDate = savedRoutes.filter((savedRoute) => savedRoute.status === "draft"
+    && savedRoute.created_at && toDateInputValue(new Date(savedRoute.created_at)) === calendarDate);
+  const savedRoutesForDate = [...draftRoutesForDate, ...routesForDate];
   const toggleOrderSelection = (orderId) => {
     setSelectedOrderIds((current) => current.includes(orderId)
       ? current.filter((selectedId) => selectedId !== orderId)
@@ -415,17 +423,17 @@ export default function DeliveryRoute() {
         </div>
       </section>
 
-      {savedRoutes.length > 0 && (
+      {savedRoutesForDate.length > 0 && (
         <section className="rounded-xl border border-border bg-card p-4 sm:p-5" aria-label={t("route.savedRoutes")}>
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
               <p className="font-mono text-[11px] font-semibold uppercase tracking-[0.14em] text-highlight">{t("route.savedRoutes")}</p>
               <p className="mt-1 text-xs text-muted-foreground">{t("route.savedRoutesDescription")}</p>
             </div>
-            <span className="rounded-full border border-border px-2.5 py-1 font-mono text-xs text-muted-foreground">{savedRoutes.length}</span>
+            <span className="rounded-full border border-border px-2.5 py-1 font-mono text-xs text-muted-foreground">{savedRoutesForDate.length}</span>
           </div>
           <div className="mt-4 flex gap-2 overflow-x-auto pb-1">
-            {savedRoutes.map((savedRoute) => (
+            {savedRoutesForDate.map((savedRoute) => (
               <div key={savedRoute.id} className={`flex min-w-56 items-center gap-2 rounded-lg border p-2 ${
                 route?.id === savedRoute.id ? "border-processing/50 bg-processing/10" : "border-border bg-secondary/30"
               }`}>
@@ -459,6 +467,35 @@ export default function DeliveryRoute() {
           </div>
         </section>
       )}
+
+      <section className="rounded-xl border border-border bg-card p-4 sm:p-5" aria-label={t("route.historyTitle")} data-testid="completed-route-history">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <p className="font-mono text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">{t("route.historyTitle")}</p>
+            <p className="mt-1 text-xs text-muted-foreground">{t("route.historyDescription")}</p>
+          </div>
+          <span className="rounded-full border border-border px-2.5 py-1 font-mono text-xs text-muted-foreground">{historyRoutes.length}</span>
+        </div>
+        {historyRoutes.length ? (
+          <ul className="mt-4 divide-y divide-border">
+            {historyRoutes.map((completedRoute) => (
+              <li key={completedRoute.id}>
+                <button type="button" className="flex w-full flex-wrap items-center justify-between gap-2 py-3 text-left" onClick={() => {
+                  setRoute({ ...completedRoute, trafficAware: Boolean(completedRoute.traffic_aware) });
+                  setSelectedStop(null);
+                  setShareUrl("");
+                }} data-testid={`completed-route-${completedRoute.id}`}>
+                  <span className="min-w-0">
+                    <span className="block truncate font-mono text-xs font-semibold">{completedRoute.driver_name || t("route.completedRoute")}</span>
+                    <span className="mt-1 block text-xs text-muted-foreground">{completedRoute.stops.length} · {completedRoute.stops.map((stop) => stop.order_no).join(", ")}</span>
+                  </span>
+                  <span className="shrink-0 text-xs text-muted-foreground">{new Date(completedRoute.completed_at || completedRoute.updated_at).toLocaleString(lang === "ka" ? "ka-GE" : lang)}</span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        ) : <p className="mt-4 rounded-lg border border-dashed border-border px-3 py-5 text-center text-xs text-muted-foreground">{t("route.historyEmpty")}</p>}
+      </section>
 
       {route ? (
         <>
@@ -585,7 +622,7 @@ export default function DeliveryRoute() {
                         </span>
                         <Navigation className="mt-1 h-4 w-4 shrink-0 text-muted-foreground" />
                       </button>
-                      <div className="mt-3 flex gap-2 pl-11">
+                      {route.status !== "completed" && <div className="mt-3 flex gap-2 pl-11">
                         <button
                           type="button"
                           disabled={reordering || stopIndex === 0}
@@ -625,7 +662,7 @@ export default function DeliveryRoute() {
                           <Navigation className="h-3.5 w-3.5 text-processing" />
                           {t("route.yandexNavigation")}
                         </button>
-                      </div>
+                      </div>}
                     </div>
                   </li>
                 ))}
@@ -642,7 +679,9 @@ export default function DeliveryRoute() {
                 <Truck className="h-4 w-4 text-highlight" />
                 {t("route.openNavigation")}
               </a>
-              <form onSubmit={assignRoute} className="mt-5 space-y-4 border-t border-border pt-5" data-testid="route-assignment-form">
+              {route.status === "completed" ? (
+                <p className="mt-5 border-t border-border pt-5 text-sm font-semibold text-delivered">{t("route.completedRoute")}</p>
+              ) : <form onSubmit={assignRoute} className="mt-5 space-y-4 border-t border-border pt-5" data-testid="route-assignment-form">
                 <div>
                   <p className="flex items-center gap-2 text-sm font-semibold text-foreground"><CalendarClock className="h-4 w-4 text-highlight" />{t("route.scheduleAndAssign")}</p>
                   <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{eligibleDrivers.length ? t("route.scheduleDescription") : drivers.length ? t("drivers.noEligibleDrivers") : t("route.addDriverFirst")}</p>
@@ -703,7 +742,7 @@ export default function DeliveryRoute() {
                     </Button>
                   </div>
                 )}
-              </form>
+              </form>}
             </section>
           </div>
         </>
