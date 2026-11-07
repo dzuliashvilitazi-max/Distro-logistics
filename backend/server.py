@@ -10,6 +10,7 @@ import json
 import jwt
 import bcrypt
 import logging
+import math
 import asyncio
 import time
 import traceback
@@ -138,6 +139,8 @@ class LocationSocketManager:
 
 
 location_sockets = LocationSocketManager()
+DELIVERY_GEOFENCE_RADIUS_METERS = 25
+DELIVERY_GEOFENCE_MAX_ACCURACY_METERS = 25
 
 
 # ---------- helpers ----------
@@ -6715,12 +6718,43 @@ async def update_shared_driver_location(share_token: str, body: DriverLocationIn
     order_ids = [stop.get("order_id") for stop in route.get("stops", []) if stop.get("order_id")]
     active_orders = await db.orders.find({
         "id": {"$in": order_ids}, "supplier_id": route["supplier_id"], "status": "In Transit",
-    }, {"_id": 0, "id": 1, "retailer_id": 1}).to_list(24)
+    }, {"_id": 0}).to_list(24)
     if not active_orders:
         await db.delivery_routes.update_one(
             {"id": route["id"]}, {"$set": {"tracking_active": False}, "$unset": {"driver_location": ""}},
         )
         raise HTTPException(409, "No deliveries on this route are in transit.")
+
+    delivered_order_ids = []
+    if body.accuracy_meters is not None and body.accuracy_meters <= DELIVERY_GEOFENCE_MAX_ACCURACY_METERS:
+        active_by_id = {order["id"]: order for order in active_orders}
+        for stop in route.get("stops", []):
+            order = active_by_id.get(stop.get("order_id"))
+            if not order or not isinstance(stop.get("lat"), (int, float)) or not isinstance(stop.get("lon"), (int, float)):
+                continue
+            if order.get("payment_method") == "bank_transfer" and order_payment_fields(order)["paymentStatus"] != "PAID":
+                continue
+            if _distance_between_coordinates(body.lat, body.lon, stop["lat"], stop["lon"]) > DELIVERY_GEOFENCE_RADIUS_METERS:
+                continue
+            if await apply_order_status(order, "Delivered", expected_status="In Transit"):
+                await sync_order_payment_fields(order["id"])
+                await db.delivery_routes.update_one(
+                    {"id": route["id"], "stops.order_id": order["id"]},
+                    {"$set": {"stops.$.status": "Delivered", "updated_at": recorded_at}},
+                )
+                delivered_order_ids.append(order["id"])
+                await location_sockets.broadcast_supplier(route["supplier_id"], route.get("warehouse_id"), {
+                    "type": "order_status", "route_id": route["id"],
+                    "order_id": order["id"], "status": "Delivered",
+                })
+
+    remaining_orders = await db.orders.find({
+        "id": {"$in": order_ids}, "supplier_id": route["supplier_id"],
+        "status": {"$in": ["Processing", "In Transit"]},
+    }, {"_id": 0, "id": 1}).to_list(24)
+    tracking_active = bool(remaining_orders)
+    route_update = {"driver_location": location, "tracking_active": tracking_active, "updated_at": recorded_at}
+    await db.delivery_routes.update_one({"id": route["id"], "status": "assigned"}, {"$set": route_update})
 
     event = {
         "type": "location", "route_id": route["id"], "driver_id": route.get("driver_id"),
@@ -6735,7 +6769,29 @@ async def update_shared_driver_location(share_token: str, body: DriverLocationIn
                 "type": "location", "order_id": order["id"],
                 "driver_name": route.get("driver_name", ""), "driver_location": location,
             })
-    return {"ok": True, "recorded_at": recorded_at}
+    if not tracking_active:
+        await db.delivery_routes.update_one(
+            {"id": route["id"]}, {"$unset": {"driver_location": ""}},
+        )
+        await location_sockets.broadcast_supplier(route["supplier_id"], route.get("warehouse_id"), {
+            "type": "route_completed", "route_id": route["id"],
+        })
+    return {
+        "ok": True, "recorded_at": recorded_at, "delivered_order_ids": delivered_order_ids,
+        "tracking_active": tracking_active,
+    }
+
+
+def _distance_between_coordinates(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    earth_radius_meters = 6_371_000
+    lat1_rad, lat2_rad = math.radians(lat1), math.radians(lat2)
+    delta_lat = math.radians(lat2 - lat1)
+    delta_lon = math.radians(lon2 - lon1)
+    haversine = (
+        math.sin(delta_lat / 2) ** 2
+        + math.cos(lat1_rad) * math.cos(lat2_rad) * math.sin(delta_lon / 2) ** 2
+    )
+    return 2 * earth_radius_meters * math.asin(math.sqrt(haversine))
 
 
 async def _store_order_tracking_data(order: dict) -> dict:
@@ -6813,7 +6869,10 @@ async def start_shared_delivery_route(share_token: str):
             "tracking_active": bool(orders) or bool(route.get("tracking_active")),
         }},
     )
-    return {"in_transit": [order["id"] for order in orders]}
+    return {
+        "in_transit": [order["id"] for order in orders],
+        "tracking_active": bool(orders) or bool(route.get("tracking_active")),
+    }
 
 
 @api.post("/delivery-routes/shared/{share_token}/orders/{oid}/deliver")
@@ -6826,11 +6885,12 @@ async def deliver_shared_route_order(share_token: str, oid: str, body: DriverDel
         raise HTTPException(404, "Order not found.")
     if order.get("status") not in {"Processing", "In Transit"}:
         raise HTTPException(409, "Only approved or in-transit orders can be delivered.")
+    expected_status = order["status"]
     if order.get("payment_method") in {"tbc", "bog"} and order.get("payment_status") != "Succeeded":
         raise HTTPException(409, "Order actions are unavailable until the bank confirms payment.")
     if order.get("payment_method") == "bank_transfer" and order_payment_fields(order)["paymentStatus"] != "PAID":
         raise HTTPException(409, "Order actions are unavailable until the transfer is confirmed.")
-    total, balance = order_payment_totals(order)
+    _, balance = order_payment_totals(order)
     if body.payment == "cash" and balance > 0 and not order.get("external_order"):
         entry = {
             "id": str(uuid.uuid4()), "amount": balance, "method": "cash", "reference": "",
@@ -6844,9 +6904,14 @@ async def deliver_shared_route_order(share_token: str, oid: str, body: DriverDel
         if result.modified_count != 1:
             raise HTTPException(409, "Order changed. Refresh and try again.")
     elif body.payment == "credit":
-        await db.orders.update_one({"id": oid}, {"$set": {"delivered_on_credit": True}})
+        result = await db.orders.update_one(
+            {"id": oid, "status": expected_status}, {"$set": {"delivered_on_credit": True}},
+        )
+        if result.modified_count != 1:
+            raise HTTPException(409, "Order changed. Refresh and try again.")
     order = await db.orders.find_one({"id": oid}, {"_id": 0})
-    await apply_order_status(order, "Delivered")
+    if not await apply_order_status(order, "Delivered", expected_status=expected_status):
+        raise HTTPException(409, "Order changed. Refresh and try again.")
     await sync_order_payment_fields(oid)
     await db.delivery_routes.update_one(
         {"id": route["id"], "stops.order_id": oid}, {"$set": {"stops.$.status": "Delivered"}},
@@ -6930,7 +6995,8 @@ VALID_STATUS = ["Pending Payment", "Pending", "Processing", "In Transit", "Deliv
 
 
 async def apply_order_status(order: dict, status: str, actor_is_retailer: bool = False,
-                             reason: Optional[str] = None, rejected: bool = False) -> None:
+                             reason: Optional[str] = None, rejected: bool = False,
+                             expected_status: Optional[str] = None) -> bool:
     now = now_iso()
     entry = {"status": status, "at": now}
     if reason:
@@ -6946,9 +7012,13 @@ async def apply_order_status(order: dict, status: str, actor_is_retailer: bool =
         set_fields["delivered_at"] = now
         if not order.get("external_order"):
             set_fields["commission_amount"] = order.get("service_fee", moneylib.as_json(moneylib.percent_of(order.get("total", 0), 5)))
-    await db.orders.update_one({"id": order["id"]}, {"$set": set_fields})
-    if status != "In Transit":
-        await location_sockets.broadcast_order(order["id"], {"type": "status", "status": status})
+    query = {"id": order["id"]}
+    if expected_status:
+        query["status"] = expected_status
+    result = await db.orders.update_one(query, {"$set": set_fields})
+    if result.modified_count != 1:
+        return False
+    await location_sockets.broadcast_order(order["id"], {"type": "status", "status": status})
     target = order["supplier_id"] if actor_is_retailer else order["retailer_id"]
     status_ka = {
         "Pending Payment": "ელოდება გადარიცხვას",
@@ -6962,6 +7032,7 @@ async def apply_order_status(order: dict, status: str, actor_is_retailer: bool =
             target, f"შეკვეთის №{order['order_no']} სტატუსი შეიცვალა: {status_ka}.",
             "status", order_id=order["id"],
         )
+    return True
 
 
 @api.put("/orders/{oid}/status")

@@ -80,12 +80,24 @@ export default function DriverRoute() {
     const watchId = navigator.geolocation.watchPosition(async ({ coords }) => {
       if (!active || Date.now() - lastSentAt < 10000) return;
       lastSentAt = Date.now();
+      const location = {
+        lat: coords.latitude,
+        lon: coords.longitude,
+        accuracy_meters: Number.isFinite(coords.accuracy) ? coords.accuracy : undefined,
+      };
       try {
-        await api.post(`/delivery-routes/shared/${encodeURIComponent(token)}/location`, {
-          lat: coords.latitude,
-          lon: coords.longitude,
-          accuracy_meters: Number.isFinite(coords.accuracy) ? coords.accuracy : undefined,
-        });
+        const { data } = await api.post(`/delivery-routes/shared/${encodeURIComponent(token)}/location`, location);
+        if (!active) return;
+        const deliveredIds = new Set(data.delivered_order_ids || []);
+        setRoute((current) => current && ({
+          ...current,
+          driver_location: { ...location, recorded_at: data.recorded_at },
+          tracking_active: data.tracking_active,
+          stops: current.stops.map((stop) => deliveredIds.has(stop.order_id)
+            ? { ...stop, status: "Delivered", lifecycle_status: "DELIVERED" }
+            : stop),
+        }));
+        if (deliveredIds.size) toast.success(t("driver.geofenceDelivered"));
       } catch (locationError) {
         if (!active) return;
         if (locationError.response?.status === 409) {
@@ -107,7 +119,15 @@ export default function DriverRoute() {
   const startRoute = async () => {
     setBusy(true);
     try {
-      await api.post(`/delivery-routes/shared/${encodeURIComponent(token)}/start`);
+      const { data } = await api.post(`/delivery-routes/shared/${encodeURIComponent(token)}/start`);
+      const startedIds = new Set(data.in_transit || []);
+      setRoute((current) => current && ({
+        ...current,
+        tracking_active: data.tracking_active,
+        stops: current.stops.map((stop) => startedIds.has(stop.order_id)
+          ? { ...stop, status: "In Transit", lifecycle_status: "IN_TRANSIT" }
+          : stop),
+      }));
       toast.success(t("driver.routeStarted"));
       await reloadRoute();
     } catch (requestError) { toast.error(formatApiError(requestError.response?.data?.detail)); }
@@ -215,7 +235,10 @@ export default function DriverRoute() {
                   <button type="button" onClick={() => setSelectedStop(stop.order_id)} className="flex w-full gap-3 text-left">
                     <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-processing text-sm font-bold text-background">{stop.sequence}</span>
                     <span className="min-w-0 flex-1">
-                      <span className="font-mono text-xs font-semibold">{stop.order_no}</span>
+                      <span className="flex flex-wrap items-center gap-2">
+                        <span className="font-mono text-xs font-semibold">{stop.order_no}</span>
+                        <span className="rounded-full bg-secondary px-2 py-0.5 text-[10px] font-medium">{t(`status.${stop.status}`)}</span>
+                      </span>
                       {(stop.is_external || stop.external_order) && (
                         <span className="ml-2 rounded-full border border-highlight/30 bg-highlight/10 px-1.5 py-0.5 font-sans text-[9px] font-semibold text-highlight">
                           {t("orders.externalBadge")}
@@ -249,6 +272,9 @@ export default function DriverRoute() {
                     <p className="mt-3 flex items-center gap-1.5 pl-11 text-sm font-semibold text-emerald-500"><CheckCircle2 className="h-4 w-4" />{t("driver.delivered")}</p>
                   ) : ["Processing", "In Transit"].includes(stop.status) && (
                     <div className="mt-3 pl-11">
+                      {stop.status === "In Transit" && route.tracking_active && (
+                        <p className="mb-2 text-xs text-muted-foreground" role="status">{t("driver.geofenceWaiting")}</p>
+                      )}
                       {deliveringId === stop.order_id ? (
                         <div className="space-y-2 rounded-lg border border-border bg-background/60 p-3">
                           <p className="text-xs font-semibold">{t("driver.paymentOnDelivery")}</p>
