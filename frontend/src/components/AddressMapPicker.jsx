@@ -103,11 +103,13 @@ export default function AddressMapPicker({ value, onChange, disabled = false }) 
           <Label htmlFor="address-map-search">{t("address.search")}</Label>
           <Input
             id="address-map-search"
+            type="search"
             value={query}
             onChange={(event) => setQuery(event.target.value)}
-            onKeyDown={(event) => {
+            onKeyDownCapture={(event) => {
               if (event.key === "Enter") {
                 event.preventDefault();
+                event.stopPropagation();
                 void searchAddress();
               }
             }}
@@ -116,7 +118,11 @@ export default function AddressMapPicker({ value, onChange, disabled = false }) 
             data-testid="address-map-search-input"
           />
         </div>
-        <Button type="button" variant="outline" className="mt-6 shrink-0" onClick={() => void searchAddress()} disabled={disabled || searching || query.trim().length < 3} aria-label={t("address.search")} data-testid="address-map-search-submit">
+        <Button type="button" variant="outline" className="mt-6 shrink-0" onClick={(event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          void searchAddress();
+        }} disabled={disabled || searching || query.trim().length < 3} aria-label={t("address.search")} data-testid="address-map-search-submit">
           {searching ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
         </Button>
       </div>
