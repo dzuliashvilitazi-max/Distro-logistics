@@ -77,5 +77,9 @@ def test_production_cors_requires_explicit_https_origins():
     assert security.parse_cors_origins({"APP_ENV": "production", "CORS_ORIGINS": "https://app.example"}) == [
         "https://app.example",
     ]
+    assert security.parse_cors_origins({
+        "APP_ENV": "production",
+        "CORS_ORIGINS": "https://distrologistics.ge,https://www.distrologistics.ge",
+    }) == ["https://distrologistics.ge", "https://www.distrologistics.ge"]
     with pytest.raises(RuntimeError, match="explicit HTTPS"):
         security.parse_cors_origins({"APP_ENV": "production", "CORS_ORIGINS": "*"})
