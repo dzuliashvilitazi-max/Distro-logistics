@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { api, requestErrorMessage } from "@/lib/api";
 import { LogoAvatar } from "@/components/BusinessLogo";
+import ProductImage from "@/components/ProductImage";
 import { useCart } from "@/context/CartContext";
 import { OrderDialog } from "@/pages/retailer/Catalog";
 import ProductFilterBar from "@/components/ProductFilterBar";
@@ -176,7 +177,7 @@ export default function StoreDistributors() {
             {visible.map((p) => (
               <div key={p.id} data-testid={`exclusive-product-${p.id}`} className="flex flex-col overflow-hidden rounded-xl border border-border bg-card">
                 <div className="aspect-[4/3] bg-secondary">
-                  <img src={p.image || "https://images.unsplash.com/photo-1553413077-190dd305871c?w=600"} alt={p.name} className="h-full w-full object-cover" />
+                  <ProductImage image={p.image} name={p.name} category={p.category} alt={p.name} className="h-full w-full object-cover" />
                 </div>
                 <div className="flex flex-1 flex-col p-4">
                   <h3 className="line-clamp-2 text-sm font-semibold">{p.name}</h3>

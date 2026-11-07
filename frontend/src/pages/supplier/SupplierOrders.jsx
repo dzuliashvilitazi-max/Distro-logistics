@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { api, formatApiError } from "@/lib/api";
+import ProductImage from "@/components/ProductImage";
 import { useI18n } from "@/context/I18nContext";
 import { StatusBadge } from "@/components/StatusBadge";
 import { PaymentBadge } from "@/pages/admin/AdminOrders";
@@ -282,7 +283,7 @@ export default function SupplierOrders() {
 
               <div className="my-3 space-y-1.5 border-y border-border py-3">
                 {o.items.map((i) => (
-                  <div key={i.product_id} className="flex items-center gap-3 text-sm"><img src={i.image || undefined} alt="" className="h-9 w-9 rounded border border-border object-cover" /><span className="flex-1 truncate">{i.name}</span><span className="font-mono text-muted-foreground">{i.quantity} × ₾{i.unit_price.toFixed(2)}</span></div>
+                  <div key={i.product_id} className="flex items-center gap-3 text-sm"><ProductImage image={i.image} name={i.name} alt="" className="h-9 w-9 rounded border border-border object-cover" /><span className="flex-1 truncate">{i.name}</span><span className="font-mono text-muted-foreground">{i.quantity} × ₾{i.unit_price.toFixed(2)}</span></div>
                 ))}
                 {o.notes && <p className="pt-1 text-xs text-muted-foreground"><span className="font-semibold text-foreground">{tr("orders.notes")}:</span> {o.notes}</p>}
               </div>

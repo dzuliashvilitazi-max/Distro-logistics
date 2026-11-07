@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { api, formatApiError } from "@/lib/api";
 import { LogoAvatar } from "@/components/BusinessLogo";
+import ProductImage from "@/components/ProductImage";
 import { useAuth } from "@/context/AuthContext";
 import { useI18n } from "@/context/I18nContext";
 import { useCart } from "@/context/CartContext";
@@ -246,7 +247,7 @@ export default function Orders() {
               <div className="mt-3 space-y-2 border-t border-border pt-3">
                 {o.items.map((i, index) => (
                   <div key={`${i.product_id}-${index}`} className="flex items-center gap-3 text-sm">
-                    {i.image ? <img src={i.image} alt="" className="h-10 w-10 rounded border border-border object-cover" /> : <div className="h-10 w-10 rounded border border-border bg-secondary" />}
+                    <ProductImage image={i.image} name={i.name} alt="" className="h-10 w-10 rounded border border-border object-cover" />
                     <span className="flex-1 truncate">{i.name}</span>
                     <span className="font-mono text-muted-foreground">{i.quantity} × ₾{i.unit_price.toFixed(2)}</span>
                     <span className="w-20 text-right font-semibold">₾{(i.quantity * i.unit_price).toFixed(2)}</span>

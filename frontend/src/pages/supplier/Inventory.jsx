@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { API, api } from "@/lib/api";
+import ProductImage from "@/components/ProductImage";
 import { useAuth } from "@/context/AuthContext";
 import { useSupplierWarehouse } from "@/context/SupplierWarehouseContext";
 import { useI18n } from "@/context/I18nContext";
@@ -247,7 +248,7 @@ const handleExcelUpload = async (e) => {
             <tbody>
               {products.map((p) => (
                 <tr key={p.id} data-testid={`inventory-row-${p.id}`} className="border-b border-border/50 last:border-0">
-                  <td className="px-4 py-3"><div className="flex items-center gap-3"><img src={p.image || undefined} alt="" className="h-10 w-10 rounded border border-border object-cover" /><span className="max-w-xs truncate font-medium">{p.name}</span></div></td>
+                  <td className="px-4 py-3"><div className="flex items-center gap-3"><ProductImage image={p.image} name={p.name} category={p.category} alt="" className="h-10 w-10 rounded border border-border object-cover" /><span className="max-w-xs truncate font-medium">{p.name}</span></div></td>
                   <td className="px-4 py-3 text-muted-foreground">{t(categoryKey(p.category))}</td>
                   <td className="px-4 py-3 font-semibold">₾{(p.price_per_unit ?? p.price ?? 0).toFixed(2)} <span className="text-xs font-normal text-muted-foreground">/ {p.unit || "ერთეული"}</span></td>
                   <td className="px-4 py-3 font-mono">{p.moq}</td>
@@ -365,7 +366,7 @@ const handleExcelUpload = async (e) => {
               <div className="mt-1.5 flex items-start gap-3">
                 <div className="flex h-24 w-24 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-dashed border-border bg-secondary" data-testid="image-preview">
                   {imgLoading ? <span className="text-[11px] text-muted-foreground">{t("inv.processing")}</span>
-                    : form.image ? <img src={form.image} alt={t("inv.preview")} className="h-full w-full object-cover" data-testid="image-preview-thumb" />
+                    : form.image ? <ProductImage image={form.image} name={form.name} category={form.category} alt={t("inv.preview")} className="h-full w-full object-cover" data-testid="image-preview-thumb" />
                     : <ImageIcon className="h-7 w-7 text-muted-foreground" />}
                 </div>
                 <div className="flex flex-1 flex-col gap-2">

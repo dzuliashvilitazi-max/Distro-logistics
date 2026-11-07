@@ -302,6 +302,8 @@ def test_upload_persists_refreshes_updates_and_preserves_unrelated_products():
         imported_product = next(item for item in refreshed.json() if item["sku"] == "TEA-1")
         assert imported_product["stock"] == 30
         assert imported_product["moq"] == 2
+        assert imported_product["image"].startswith("https://images.unsplash.com/")
+        assert "ქართული ჩაი" in imported_product["description"]
 
         changed_bytes = _csv_bytes([["ქართული ჩაი", 14, 45, 3, "TEA-1"]],
                                    ("Product Name", "Price", "Quantity", "Minimum Quantity", "SKU"))
@@ -423,6 +425,8 @@ def test_manual_product_crud_persists_and_checks_supplier_ownership():
         assert created.status_code == 200
         product_id = created.json()["id"]
         assert created.json()["category_id"] == database.categories.rows[0]["id"]
+        assert created.json()["image"].startswith("https://images.unsplash.com/")
+        assert "Manual tea" in created.json()["description"]
 
         loaded = client.get("/api/products", params={"supplier_id": "supplier-import-test"})
         assert any(item["id"] == product_id for item in loaded.json())
@@ -434,6 +438,7 @@ def test_manual_product_crud_persists_and_checks_supplier_ownership():
         assert updated.json()["stock"] == 9
         assert updated.json()["moq"] == 3
         assert updated.json()["category_id"] == created.json()["category_id"]
+        assert updated.json()["image"] == created.json()["image"]
 
         server.app.dependency_overrides[server.get_current_user] = lambda: {
             "id": "different-supplier", "role": "supplier", "business_name": "Other",

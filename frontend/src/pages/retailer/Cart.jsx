@@ -5,6 +5,7 @@ import { useAuth } from "@/context/AuthContext";
 import { useStoreBranch } from "@/context/StoreBranchContext";
 import { useI18n } from "@/context/I18nContext";
 import { api, tierPrice, formatApiError } from "@/lib/api";
+import ProductImage from "@/components/ProductImage";
 import { PAYMENT_METHODS } from "@/lib/i18n";
 import { Trash2, Plus, Minus, ShoppingCart, Truck, Loader2, Banknote, CreditCard, FileClock } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -139,7 +140,7 @@ export default function Cart() {
         <div className="space-y-3 lg:col-span-7">
           {lines.map((l) => (
             <div key={l.product_id} data-testid={`cart-item-${l.product_id}`} className="flex gap-4 rounded-xl border border-border bg-card p-4">
-              {l.image ? <img src={l.image} alt={l.name} className="h-20 w-20 shrink-0 rounded-lg border border-border object-cover" /> : <div className="h-20 w-20 shrink-0 rounded-lg border border-border bg-secondary" />}
+              <ProductImage image={l.image} name={l.name} alt={l.name} className="h-20 w-20 shrink-0 rounded-lg border border-border object-cover" />
               <div className="min-w-0 flex-1">
                 <p className="font-mono text-[11px] uppercase tracking-wider text-muted-foreground">{l.supplier_name}</p>
                 <h3 className="truncate text-sm font-semibold">{l.name}</h3>

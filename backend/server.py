@@ -22,6 +22,7 @@ from decimal import Decimal, ROUND_HALF_UP
 from bson.decimal128 import Decimal128
 from urllib.parse import urlsplit
 import money as moneylib
+from product_media import complete_product_media
 
 from fastapi import FastAPI, APIRouter, HTTPException, Depends, Request, Form, Response, WebSocket, WebSocketDisconnect
 from starlette.middleware.gzip import GZipMiddleware
@@ -49,7 +50,7 @@ from email_service import try_send_email, try_send_email_detailed, invoice_email
 from invoices import build_invoice_pdf
 from invoices import build_order_invoice_pdf
 from logos import LogoError, process_upload, save_logo, delete_logo, logo_bytes
-from migrations import migrate_store_branches, migrate_store_finance, migrate_supplier_warehouses
+from migrations import migrate_product_media, migrate_store_branches, migrate_store_finance, migrate_supplier_warehouses
 from payments import validate_card, gen_token, simulate_hold, simulate_charge, CardError
 from waybills import build_waybill_html
 import web_push
@@ -3820,6 +3821,7 @@ async def create_product(
         data.get("name", ""), owner_id, data.get("category"),
     )
     data["category_id"] = category_id
+    data.update(complete_product_media(data))
     data["city"] = data.get("city") or user.get("city", "")
     initial_stock = data.pop("stock", 0)
     doc = {"id": pid, "supplier_id": owner_id, "supplier_name": user["business_name"],
@@ -3872,6 +3874,7 @@ async def update_product(
         update_data.get("name", ""), owner_id, update_data.get("category"),
     )
     update_data["category_id"] = category_id
+    update_data.update(complete_product_media(update_data, prod))
     await db.products.update_one({"id": pid, "supplier_id": owner_id}, {"$set": update_data})
     inventory_collection = getattr(db, "warehouse_inventory", None)
     if selected_warehouse_id and inventory_collection is not None:
@@ -11287,6 +11290,7 @@ async def run_background_startup():
 
     await asyncio.gather(
         step(backfill_product_categories, "product category backfill"),
+        step(lambda: migrate_product_media(db), "product media backfill"),
         step(backfill_existing_admin_contacts, "existing admin contacts"),
         step(ensure_startup_indexes, "indexes"),
         step(lambda: migrate_store_finance(db), "store finance"),
@@ -11695,6 +11699,7 @@ async def upload_excel(
                     product_data.get("name") or match.get("name", ""), owner_id, category_input,
                 )
                 product_data["category_id"] = category_id
+                product_data.update(complete_product_media(product_data, match))
                 update_doc = {}
                 # Without warehouses the quantity lives on the product itself.
                 if add_stock and not selected_warehouse_id and "stock" in product_data:
@@ -11713,6 +11718,7 @@ async def upload_excel(
                     product_data.get("name", ""), owner_id, category_input,
                 )
                 product_data["category_id"] = category_id
+                product_data.update(complete_product_media(product_data))
                 product_data["city"] = product_data.get("city") or user.get("city", "")
                 product_id = str(uuid.uuid4())
                 doc = {
