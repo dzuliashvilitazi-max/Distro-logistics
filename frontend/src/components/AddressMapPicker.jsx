@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { MapContainer, Marker, TileLayer, useMap, useMapEvents } from "react-leaflet";
 import L from "leaflet";
 import { Loader2, Search } from "lucide-react";
@@ -40,6 +40,7 @@ export default function AddressMapPicker({ value, onChange, disabled = false }) 
   const [results, setResults] = useState([]);
   const [searching, setSearching] = useState(false);
   const [resolving, setResolving] = useState(false);
+  const searchSequence = useRef(0);
 
   useEffect(() => {
     if (Number.isFinite(value?.lat) && Number.isFinite(value?.lng)) {
@@ -66,32 +67,59 @@ export default function AddressMapPicker({ value, onChange, disabled = false }) 
     }
   };
 
-  const searchAddress = async (event) => {
-    event.preventDefault();
-    if (query.trim().length < 3) return;
+  const searchAddress = async (searchQuery = query) => {
+    const normalizedQuery = searchQuery.trim();
+    if (normalizedQuery.length < 3 || disabled) return;
+    const sequence = ++searchSequence.current;
     setSearching(true);
     try {
-      const { data } = await api.get("/addresses/search", { params: { query: query.trim() } });
+      const { data } = await api.get("/addresses/search", { params: { query: normalizedQuery } });
+      if (sequence !== searchSequence.current) return;
       setResults(data);
       if (!data.length) toast.message(t("address.noResults"));
     } catch (error) {
+      if (sequence !== searchSequence.current) return;
       toast.error(formatApiError(error.response?.data?.detail) || t("address.searchError"));
     } finally {
-      setSearching(false);
+      if (sequence === searchSequence.current) setSearching(false);
     }
   };
 
+  useEffect(() => {
+    if (disabled || query.trim().length < 3) {
+      searchSequence.current += 1;
+      setSearching(false);
+      setResults([]);
+      return undefined;
+    }
+    const timer = window.setTimeout(() => { void searchAddress(query); }, 400);
+    return () => window.clearTimeout(timer);
+  }, [query, disabled]);
+
   return (
     <div className="space-y-3" data-testid="address-map-picker">
-      <form className="flex gap-2" onSubmit={searchAddress}>
+      <div className="flex gap-2">
         <div className="min-w-0 flex-1">
           <Label htmlFor="address-map-search">{t("address.search")}</Label>
-          <Input id="address-map-search" value={query} onChange={(event) => setQuery(event.target.value)} disabled={disabled} className="mt-1" data-testid="address-map-search-input" />
+          <Input
+            id="address-map-search"
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") {
+                event.preventDefault();
+                void searchAddress();
+              }
+            }}
+            disabled={disabled}
+            className="mt-1"
+            data-testid="address-map-search-input"
+          />
         </div>
-        <Button type="submit" variant="outline" className="mt-6 shrink-0" disabled={disabled || searching || query.trim().length < 3} aria-label={t("address.search")} data-testid="address-map-search-submit">
+        <Button type="button" variant="outline" className="mt-6 shrink-0" onClick={() => void searchAddress()} disabled={disabled || searching || query.trim().length < 3} aria-label={t("address.search")} data-testid="address-map-search-submit">
           {searching ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
         </Button>
-      </form>
+      </div>
       {results.length > 0 && (
         <div className="max-h-36 overflow-y-auto rounded-md border border-border bg-popover" role="listbox" aria-label={t("address.searchResults")}>
           {results.map((result, index) => (
