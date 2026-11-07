@@ -1,8 +1,10 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { api, requestErrorMessage } from "@/lib/api";
 import { LogoAvatar } from "@/components/BusinessLogo";
 import { useCart } from "@/context/CartContext";
 import { OrderDialog } from "@/pages/retailer/Catalog";
+import ProductFilterBar from "@/components/ProductFilterBar";
+import { filterAndSortProducts } from "@/lib/productFilters";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -19,6 +21,9 @@ export default function StoreDistributors() {
   const [products, setProducts] = useState([]);
   const [loadingProducts, setLoadingProducts] = useState(false);
   const [search, setSearch] = useState("");
+  const [priceSort, setPriceSort] = useState("default");
+  const [packageType, setPackageType] = useState("");
+  const [packageSize, setPackageSize] = useState("");
   const [orderProduct, setOrderProduct] = useState(null);
   const [disconnecting, setDisconnecting] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -78,8 +83,16 @@ export default function StoreDistributors() {
     return () => { live = false; };
   }, [selected]);
 
+  useEffect(() => {
+    setPriceSort("default");
+    setPackageType("");
+    setPackageSize("");
+  }, [selected?.distributor_id]);
+
   const name = (c) => c.distributor?.business_name || c.distributor?.name || c.distributor_id;
-  const visible = products.filter((p) => p.name.toLowerCase().includes(search.trim().toLowerCase()));
+  const visible = useMemo(() => filterAndSortProducts(products, {
+    query: search, sortBy: priceSort, packageType, packageSize,
+  }), [products, search, priceSort, packageType, packageSize]);
 
   return (
     <div>
@@ -145,7 +158,17 @@ export default function StoreDistributors() {
         <div className="mb-4 flex flex-wrap items-center gap-3">
           <Button variant="ghost" onClick={() => setSelected(null)}><ArrowLeft className="mr-2 h-4 w-4" />უკან</Button>
           <h2 className="text-lg font-semibold">{name(selected)}</h2>
-          <Input placeholder="პროდუქტის ძებნა..." value={search} onChange={(e) => setSearch(e.target.value)} className="ml-auto max-w-xs" />
+                <ProductFilterBar
+                  products={products}
+                  query={search}
+                  onQueryChange={setSearch}
+                  sortBy={priceSort}
+                  onSortChange={setPriceSort}
+                  packageType={packageType}
+                  onPackageTypeChange={setPackageType}
+                  packageSize={packageSize}
+                  onPackageSizeChange={setPackageSize}
+                />
         </div>
         {loadingProducts ? <p className="py-10 text-center text-sm text-muted-foreground">იტვირთება...</p>
           : visible.length === 0 ? <div className="flex flex-col items-center rounded-xl border border-dashed border-border py-16 text-center"><Package className="h-10 w-10 text-muted-foreground" /><p className="mt-3 text-sm text-muted-foreground">პროდუქტები არ მოიძებნა</p></div>

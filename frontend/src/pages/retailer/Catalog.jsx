@@ -7,10 +7,12 @@ import { useI18n } from "@/context/I18nContext";
 import { useAuth } from "@/context/AuthContext";
 import { categoryKey } from "@/lib/i18n";
 import { normalizeEntityType, SECTOR_CATEGORY_MAPPING } from "@/lib/businessEntity";
+import { filterAndSortProducts } from "@/lib/productFilters";
 import { ArrowLeft, Search, Filter, Plus, Minus, Package, Layers } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
+import ProductFilterBar from "@/components/ProductFilterBar";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
@@ -39,6 +41,9 @@ export default function Catalog() {
   const [search, setSearch] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
   const [inStockOnly, setInStockOnly] = useState(false);
+  const [priceSort, setPriceSort] = useState("default");
+  const [packageType, setPackageType] = useState("");
+  const [packageSize, setPackageSize] = useState("");
   const [selected, setSelected] = useState(null);
   const [negotiatingProduct, setNegotiatingProduct] = useState(null);
   const [loadingDistributors, setLoadingDistributors] = useState(false);
@@ -54,6 +59,13 @@ export default function Catalog() {
       .catch(() => {});
   }, []);
   const { addItem } = useCart();
+
+  useEffect(() => {
+    setPriceSort("default");
+    setPackageType("");
+    setPackageSize("");
+    setInStockOnly(false);
+  }, [selectedCategory, selectedDistributor?.id]);
 
   useEffect(() => {
     const distributorId = searchParams.get("distributor_id");
@@ -171,19 +183,24 @@ export default function Catalog() {
     const params = { supplier_id: selectedDistributor.id };
     if (selectedCategory !== "All Products") params.category = selectedCategory;
     if (city) params.city = city;
-    if (searchQuery) params.search = searchQuery;
-    if (inStockOnly) params.availability = "in_stock";
     api.get("/products", { params })
       .then((response) => { if (active) setProducts(response.data); })
       .catch(() => toast.error(t("catalog.loadError")))
       .finally(() => { if (active) setLoadingProducts(false); });
     return () => { active = false; };
-  }, [selectedDistributor, selectedCategory, city, searchQuery, inStockOnly, entityType, t]);
+  }, [selectedDistributor, selectedCategory, city, entityType, t]);
 
   const visibleCategories = useMemo(() => [...new Set(["All Products", ...cats])].filter((item) =>
     (item === "All Products" || !relevantCategories || relevantCategories.includes(item) || !STANDARD_CATEGORIES.has(item))
     && (!searchQuery || t(categoryKey(item)).toLowerCase().includes(searchQuery.toLowerCase()))
   ), [cats, relevantCategories, searchQuery, t]);
+  const filteredProducts = useMemo(() => filterAndSortProducts(products, {
+    query: search,
+    sortBy: priceSort,
+    packageType,
+    packageSize,
+    inStockOnly,
+  }), [products, search, priceSort, packageType, packageSize, inStockOnly]);
   const requestConnection = async (distributorId) => {
     try {
       await api.post("/connections/request", { distributor_id: distributorId });
@@ -217,11 +234,25 @@ export default function Catalog() {
         <SmartInventoryWidget mode="retailer" />
       </div>
 
-      <div className="mb-6 flex flex-col gap-3 lg:flex-row lg:items-center">
-        <div className="relative flex-1">
-          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-          <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder={t("catalog.searchPlaceholder")} className="pl-9" data-testid="catalog-search" />
-        </div>
+      <div className="mb-6 flex min-w-0 flex-col gap-3 lg:flex-row lg:items-center">
+        {selectedDistributor ? (
+          <ProductFilterBar
+            products={products}
+            query={search}
+            onQueryChange={setSearch}
+            sortBy={priceSort}
+            onSortChange={setPriceSort}
+            packageType={packageType}
+            onPackageTypeChange={setPackageType}
+            packageSize={packageSize}
+            onPackageSizeChange={setPackageSize}
+          />
+        ) : (
+          <div className="relative min-w-0 flex-1">
+            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder={t("catalog.searchPlaceholder")} className="pl-9" data-testid="catalog-search" />
+          </div>
+        )}
         {selectedDistributor && <Button variant={inStockOnly ? "default" : "outline"} onClick={() => setInStockOnly((value) => !value)} data-testid="filter-instock">
           <Filter className="mr-1.5 h-4 w-4" /> {t("catalog.inStockOnly")}
         </Button>}
@@ -235,10 +266,10 @@ export default function Catalog() {
 
       {!selectedCategory && <section>
         <h2 className="mb-3 text-lg font-semibold">{t("catalog.categories")}</h2>
-        {visibleCategories.length ? <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        {visibleCategories.length ? <div className="flex min-w-0 gap-2 overflow-x-auto pb-2" data-testid="catalog-category-quick-pick">
           {visibleCategories.map((item, index) => (
             <button key={`${item}-${index}`} type="button" onClick={() => setSelectedCategory(item)} data-testid={`category-${item.replace(/\s|&/g, "-")}`}
-              className="flex min-h-16 items-center justify-between rounded-lg border border-border bg-card px-4 py-3 text-left text-sm font-semibold transition-colors hover:border-primary/50 hover:bg-secondary/40">
+              className="flex min-h-14 min-w-36 shrink-0 items-center justify-between gap-4 rounded-lg border border-border bg-card px-4 py-3 text-left text-sm font-semibold transition-colors hover:border-primary/50 hover:bg-secondary/40">
               <span>{t(categoryKey(item))}</span><span aria-hidden="true">›</span>
             </button>
           ))}
@@ -285,14 +316,14 @@ export default function Catalog() {
           )}
         </div>
         {loadingProducts ? <p className="py-10 text-center text-sm text-muted-foreground">{t("catalog.loading")}</p>
-          : products.length === 0 ? (
+          : filteredProducts.length === 0 ? (
             <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-border py-20 text-center">
               <Package className="h-10 w-10 text-muted-foreground" />
               <p className="mt-3 text-sm text-muted-foreground">{t("catalog.noMatch")}</p>
             </div>
           ) : (
             <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-              {products.map((p) => {
+              {filteredProducts.map((p) => {
                 const canOrder = approvedIds.includes(p.supplier_id);
                 const isPending = pendingIds.includes(p.supplier_id);
                 return (
