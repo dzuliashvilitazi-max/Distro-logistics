@@ -17,10 +17,12 @@ import { BusinessSectorCheckboxes } from "@/components/BusinessSectorCheckboxes"
 import { normalizeEntityType } from "@/lib/businessEntity";
 import { CityMultiSelect } from "@/components/CityMultiSelect";
 import { canonCity } from "@/lib/cities";
+import { useStoreBranch } from "@/context/StoreBranchContext";
 import { toast } from "sonner";
 
 export default function Profile() {
-  const { user, refreshUser } = useAuth();
+  const { user, refreshUser, setUser } = useAuth();
+  const { refreshBranches } = useStoreBranch();
   const { t } = useI18n();
   const [form, setForm] = useState({ name: user.name || "", business_name: user.business_name || "", address: user.address || "", phone: user.phone || "", accountant_email: user.accountant_email || "", city: canonCity(user.city), cities: user.cities?.length ? user.cities.map(canonCity) : (user.city ? [canonCity(user.city)] : []), category_ids: user.category_ids || [], business_sectors: user.servedSectors || user.served_sectors || user.business_sectors || [], identification_number: user.identification_number || "", establishment_type: user.entityType || user.entity_type || user.businessType || user.business_type || user.establishment_type || "grocery", establishment_type_other: user.establishment_type_other || "", card_name: user.card_name || "", card_number: "", card_expiry: user.card_expiry || "", bank_name: user.bank_name || "", iban: user.iban || "", vat_registered: Boolean(user.vat_registered) });
   const [saving, setSaving] = useState(false);
@@ -44,7 +46,13 @@ export default function Profile() {
     if (user.role !== "supplier") { delete payload.cities; delete payload.category_ids; delete payload.business_sectors; }
     else delete payload.category_ids;
     delete payload.establishment_type; delete payload.establishment_type_other;
-    try { await api.put("/profile", payload); await refreshUser(); toast.success(t("prof.updated")); }
+    try {
+      const { data } = await api.put("/profile", payload);
+      setUser((current) => ({ ...current, ...data }));
+      await refreshUser();
+      if (user.role === "retailer") await refreshBranches();
+      toast.success(t("prof.updated"));
+    }
     catch (err) { toast.error(formatApiError(err.response?.data?.detail)); }
     finally { setSaving(false); }
   };

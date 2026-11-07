@@ -42,7 +42,7 @@ export default function Cart() {
   }, []);
   useEffect(() => {
     if (activeBranch?.address) setAddress(activeBranch.address);
-  }, [activeBranch?.id]);
+  }, [activeBranch?.id, activeBranch?.address]);
 
   const lines = useMemo(() => items.map((i) => ({ ...i, unit: tierPrice(i, i.quantity), subtotal: tierPrice(i, i.quantity) * i.quantity })), [items]);
   const total = lines.reduce((s, l) => s + l.subtotal, 0);

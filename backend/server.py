@@ -8843,6 +8843,16 @@ async def update_profile(body: ProfileIn, user: dict = Depends(get_current_user)
             })
             await log_financial_event("bank_details_changed", user, "supplier_bank", user["id"], before, after)
     await db.users.update_one({"id": user["id"]}, {"$set": _encrypt_sensitive_fields(upd)})
+    if user.get("role") == "retailer" and user.get("store_access_role", "global_admin") == "global_admin":
+        branch_updates = {
+            key: upd[key] for key in ("address", "phone") if key in upd
+        }
+        if branch_updates:
+            branch_updates["updated_at"] = now_iso()
+            await db.store_branches.update_one(
+                {"retailer_id": store_owner_id(user), "is_default": True},
+                {"$set": branch_updates},
+            )
     if user.get("role") == "supplier" and upd.get("business_name"):
         await db.products.update_many({"supplier_id": user["id"]}, {"$set": {"supplier_name": upd["business_name"]}})
     updated_user = await db.users.find_one({"id": user["id"]}, {"_id": 0, "password_hash": 0})

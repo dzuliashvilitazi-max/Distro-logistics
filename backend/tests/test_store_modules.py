@@ -177,6 +177,23 @@ def test_store_branch_create_edit_and_protect_default(monkeypatch):
         server.app.dependency_overrides.pop(server.get_current_user, None)
 
 
+def test_profile_contact_update_syncs_default_branch(monkeypatch):
+    client, db = _install(monkeypatch, {"id": "store-1", "role": "retailer", "business_name": "Store"})
+    try:
+        response = client.put("/api/profile", json={
+            "address": "Updated delivery address", "phone": "+995555123456",
+        })
+
+        assert response.status_code == 200
+        assert response.json()["address"] == "Updated delivery address"
+        assert response.json()["phone"] == "+995555123456"
+        default_branch = next(branch for branch in db.store_branches.rows if branch["is_default"])
+        assert default_branch["address"] == "Updated delivery address"
+        assert default_branch["phone"] == "+995555123456"
+    finally:
+        server.app.dependency_overrides.pop(server.get_current_user, None)
+
+
 def test_pos_sales_sync_idempotently_calculates_branch_profit(monkeypatch):
     client, db = _install(monkeypatch, {"id": "store-1", "role": "retailer", "business_name": "Store"})
     headers = {"Authorization": "Bearer dlpos_testtoken"}
