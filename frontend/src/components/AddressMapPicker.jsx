@@ -36,21 +36,25 @@ export default function AddressMapPicker({ value, onChange, disabled = false }) 
   const { t } = useI18n();
   const hasCoordinates = Number.isFinite(value?.lat) && Number.isFinite(value?.lng);
   const [center, setCenter] = useState(hasCoordinates ? { lat: value.lat, lng: value.lng } : DEFAULT_CENTER);
-  const [query, setQuery] = useState(value?.address || "");
+  const [query, setQuery] = useState(value?.label || value?.address || "");
   const [results, setResults] = useState([]);
   const [searching, setSearching] = useState(false);
   const [resolving, setResolving] = useState(false);
   const searchSequence = useRef(0);
+  const selectedLabel = useRef("");
 
   useEffect(() => {
     if (Number.isFinite(value?.lat) && Number.isFinite(value?.lng)) {
       setCenter({ lat: value.lat, lng: value.lng });
     }
-    if (value?.address) setQuery(value.address);
-  }, [value?.lat, value?.lng, value?.address]);
+    const label = value?.label || value?.address;
+    if (label) setQuery(label);
+  }, [value?.lat, value?.lng, value?.address, value?.label]);
 
   const choosePin = async (lat, lng) => {
     const point = { lat: Number(lat), lng: Number(lng) };
+    searchSequence.current += 1;
+    selectedLabel.current = "";
     setCenter(point);
     setQuery("");
     setResults([]);
@@ -58,13 +62,27 @@ export default function AddressMapPicker({ value, onChange, disabled = false }) 
     onChange({ ...value, ...point, address: "", city: "" });
     try {
       const { data } = await api.get("/addresses/reverse", { params: point });
-      setQuery(data.address || data.label || "");
+      const label = data.label || data.address || "";
+      selectedLabel.current = label;
+      setQuery(label);
       onChange(data);
     } catch (error) {
       toast.error(formatApiError(error.response?.data?.detail) || t("address.reverseError"));
     } finally {
       setResolving(false);
     }
+  };
+
+  const selectSuggestion = (suggestion) => {
+    const point = { lat: Number(suggestion.lat), lng: Number(suggestion.lng) };
+    const label = suggestion.label || suggestion.address || "";
+    searchSequence.current += 1;
+    selectedLabel.current = label;
+    setSearching(false);
+    setResults([]);
+    setCenter(point);
+    setQuery(label);
+    onChange({ ...value, ...suggestion, ...point, label });
   };
 
   const searchAddress = async (searchQuery = query) => {
@@ -86,6 +104,13 @@ export default function AddressMapPicker({ value, onChange, disabled = false }) 
   };
 
   useEffect(() => {
+    if (selectedLabel.current && query.trim() === selectedLabel.current) {
+      selectedLabel.current = "";
+      searchSequence.current += 1;
+      setSearching(false);
+      setResults([]);
+      return undefined;
+    }
     if (disabled || query.trim().length < 3) {
       searchSequence.current += 1;
       setSearching(false);
@@ -97,7 +122,7 @@ export default function AddressMapPicker({ value, onChange, disabled = false }) 
   }, [query, disabled]);
 
   return (
-    <div className="space-y-3" data-testid="address-map-picker">
+    <div className="min-w-0 max-w-full space-y-3" data-testid="address-map-picker">
       <div className="flex gap-2">
         <div className="min-w-0 flex-1">
           <Label htmlFor="address-map-search">{t("address.search")}</Label>
@@ -129,14 +154,14 @@ export default function AddressMapPicker({ value, onChange, disabled = false }) 
       {results.length > 0 && (
         <div className="max-h-36 overflow-y-auto rounded-md border border-border bg-popover" role="listbox" aria-label={t("address.searchResults")}>
           {results.map((result, index) => (
-            <button key={`${result.lat}:${result.lng}:${index}`} type="button" className="block w-full border-b border-border px-3 py-2 text-left text-xs last:border-0 hover:bg-secondary" onClick={() => choosePin(result.lat, result.lng)}>
-              {result.label || result.address}
+            <button key={`${result.lat}:${result.lng}:${index}`} type="button" className="block w-full break-words border-b border-border px-3 py-2 text-left text-xs last:border-0 hover:bg-secondary" onMouseDown={(event) => event.preventDefault()} onClick={() => selectSuggestion(result)}>
+              {result.label || [result.address, result.city].filter(Boolean).join(", ")}
             </button>
           ))}
         </div>
       )}
-      <div className="relative overflow-hidden rounded-lg border border-border">
-        <MapContainer center={[center.lat, center.lng]} zoom={15} scrollWheelZoom className="h-[320px] w-full sm:h-[390px]" data-testid="address-map">
+      <div className="relative min-w-0 max-w-full overflow-hidden rounded-lg border border-border">
+        <MapContainer center={[center.lat, center.lng]} zoom={15} scrollWheelZoom className="h-[320px] w-full max-w-full sm:h-[390px]" data-testid="address-map">
           <TileLayer
             attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
             url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"

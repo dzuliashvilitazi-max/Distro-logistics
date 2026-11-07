@@ -22,7 +22,9 @@ export default function Cart() {
   const { activeBranch } = useStoreBranch();
   const { t } = useI18n();
   const navigate = useNavigate();
-  const address = activeBranch?.address || user.address || "";
+  const address = [activeBranch?.address || user.address || "", activeBranch?.city || ""]
+    .filter(Boolean)
+    .join(", ");
   const [notes, setNotes] = useState("");
   const [deliveryWindow, setDeliveryWindow] = useState("9am - 12pm");
   const [payment, setPayment] = useState(user.card_verified ? "online" : "cash");

@@ -2371,7 +2371,10 @@ async def _store_branch_delivery_location(user: dict, branch_id: str) -> tuple[s
     address = (branch.get("address") or user.get("address") or "").strip()
     if not address:
         raise HTTPException(409, "Add a street address to the selected map pin before ordering.")
-    return address, coordinates, branch.get("city") or user.get("city")
+    city = branch.get("city") or user.get("city") or ""
+    if city and city.casefold() not in address.casefold():
+        address = f"{address}, {city}"
+    return address, coordinates, city or None
 
 
 async def _store_routing_address(user: dict, branch_id: Optional[str], delivery_address: str) -> str:
@@ -2379,7 +2382,9 @@ async def _store_routing_address(user: dict, branch_id: Optional[str], delivery_
     if branch_id:
         branch = await db.store_branches.find_one({"id": branch_id, "retailer_id": owner_id}, {"_id": 0, "address": 1, "city": 1})
         if branch and branch.get("address"):
-            return f"{branch['address']} {branch.get('city') or ''}".strip()
+            address = branch["address"].strip()
+            city = (branch.get("city") or "").strip()
+            return address if not city or city.casefold() in address.casefold() else f"{address} {city}"
     if user.get("city"):
         return f"{delivery_address} {user['city']}"
     return delivery_address
@@ -6304,14 +6309,27 @@ def _nominatim_address(result: dict) -> dict:
             or details.get("footway") or "").strip()
     number = str(details.get("house_number") or "").strip()
     street = ", ".join(part for part in (road, number) if part)
+    neighborhood = str(
+        details.get("neighbourhood") or details.get("suburb") or details.get("city_district")
+        or details.get("quarter") or details.get("district") or ""
+    ).strip()
     city = (details.get("city") or details.get("town") or details.get("village")
             or details.get("municipality") or details.get("county") or "").strip()
-    address = street or str(result.get("name") or result.get("display_name") or "").split(",")[0].strip()
+    street = street or str(result.get("name") or result.get("display_name") or "").split(",")[0].strip()
+    address_parts = []
+    for part in (street, neighborhood):
+        if part and part.casefold() not in {value.casefold() for value in address_parts}:
+            address_parts.append(part)
+    address = ", ".join(address_parts)
+    label_parts = []
+    for part in (address, city):
+        if part and part.casefold() not in {value.casefold() for value in label_parts}:
+            label_parts.append(part)
     return {
         "address": address,
+        "neighborhood": neighborhood,
         "city": city,
-        "label": ", ".join(part for part in (address, city) if part)
-        or str(result.get("display_name") or ""),
+        "label": ", ".join(label_parts) or str(result.get("display_name") or ""),
     }
 
 

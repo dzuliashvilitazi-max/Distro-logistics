@@ -13,6 +13,7 @@ import { toast } from "sonner";
 const branchLocation = (branch) => ({
   address: branch?.address || "",
   city: branch?.city || "",
+  label: [branch?.address, branch?.city].filter(Boolean).join(", "),
   lat: branch?.lat ?? branch?.route_coordinates?.lat ?? null,
   lng: branch?.lng ?? branch?.route_coordinates?.lng ?? branch?.route_coordinates?.lon ?? null,
 });
@@ -87,10 +88,10 @@ export default function AddressSelector({ canManage = false }) {
       <DialogTrigger asChild>
         <Button type="button" variant="outline" onClick={openSelector} className="h-10 max-w-56 justify-start gap-2 px-2.5 sm:max-w-72" data-testid="address-selector-trigger" aria-label={t("address.title")}>
           <MapPin className="h-4 w-4 shrink-0 text-primary" />
-          <span className="truncate text-left text-xs font-medium sm:text-sm">{activeBranch.address || activeBranch.name}</span>
+          <span className="truncate text-left text-xs font-medium sm:text-sm">{[activeBranch.address || activeBranch.name, activeBranch.city].filter(Boolean).join(", ")}</span>
         </Button>
       </DialogTrigger>
-      <DialogContent className="max-h-[92vh] max-w-5xl overflow-y-auto">
+      <DialogContent className="max-h-[92vh] w-[calc(100%-1rem)] max-w-5xl overflow-x-hidden overflow-y-auto sm:w-full">
         <DialogHeader>
           <DialogTitle>{t("address.title")}</DialogTitle>
           <DialogDescription>{t("address.description")}</DialogDescription>
@@ -105,13 +106,13 @@ export default function AddressSelector({ canManage = false }) {
               {branches.filter((branch) => branch.active !== false).map((branch) => (
                 <button key={branch.id} type="button" onClick={() => chooseBranch(branch)} className={`w-full rounded-md border px-3 py-2 text-left ${branch.id === draftBranchId && !adding ? "border-primary bg-primary/5" : "border-border hover:bg-secondary/60"}`} data-testid={`address-option-${branch.id}`}>
                   <span className="block truncate text-sm font-medium">{branch.name}</span>
-                  <span className="mt-0.5 block truncate text-xs text-muted-foreground">{branch.address || t("branch.noAddress")}</span>
+                  <span className="mt-0.5 block break-words text-xs text-muted-foreground">{[branch.address, branch.city].filter(Boolean).join(", ") || t("branch.noAddress")}</span>
                 </button>
               ))}
             </div>
             {adding && <div className="space-y-1"><Label htmlFor="new-address-name">{t("address.name")}</Label><Input id="new-address-name" value={name} onChange={(event) => setName(event.target.value)} maxLength={120} data-testid="address-new-name" /></div>}
           </section>
-          <section className="min-w-0 space-y-3">
+          <section className="min-w-0 space-y-3 overflow-hidden">
             {!adding && <div className="space-y-1"><Label htmlFor="selected-address-name">{t("address.name")}</Label><Input id="selected-address-name" value={name} onChange={(event) => setName(event.target.value)} disabled={!canManage} maxLength={120} /></div>}
             <AddressMapPicker value={draftLocation} onChange={setDraftLocation} disabled={!canManage} />
           </section>

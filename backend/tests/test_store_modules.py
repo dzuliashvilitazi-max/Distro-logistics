@@ -208,11 +208,11 @@ def test_address_search_and_reverse_geocoding_return_pin_fields(monkeypatch):
         if path == "search":
             return [{
                 "lat": "41.71", "lon": "44.81", "display_name": "Leghoberidze Street, 9, Tbilisi",
-                "address": {"road": "Leghoberidze Street", "house_number": "9", "city": "Tbilisi"},
+                "address": {"road": "Leghoberidze Street", "house_number": "9", "suburb": "Vera", "city": "Tbilisi"},
             }]
         return {
             "lat": str(params["lat"]), "lon": str(params["lon"]),
-            "address": {"road": "Leghoberidze Street", "house_number": "9", "city": "Tbilisi"},
+            "address": {"road": "Leghoberidze Street", "house_number": "9", "suburb": "Vera", "city": "Tbilisi"},
         }
 
     monkeypatch.setattr(server, "_nominatim_request", lookup)
@@ -221,14 +221,14 @@ def test_address_search_and_reverse_geocoding_return_pin_fields(monkeypatch):
     try:
         search = client.get("/api/addresses/search", params={"query": "Leghoberidze 9"})
         assert search.status_code == 200
-        assert search.json()[0]["address"] == "Leghoberidze Street, 9"
+        assert search.json()[0]["address"] == "Leghoberidze Street, 9, Vera"
         assert search.json()[0]["lat"] == 41.71
 
         reverse = client.get("/api/addresses/reverse", params={"lat": 41.71, "lng": 44.81})
         assert reverse.status_code == 200
         assert reverse.json() == {
-            "address": "Leghoberidze Street, 9", "city": "Tbilisi",
-            "label": "Leghoberidze Street, 9, Tbilisi", "lat": 41.71, "lng": 44.81,
+            "address": "Leghoberidze Street, 9, Vera", "neighborhood": "Vera", "city": "Tbilisi",
+            "label": "Leghoberidze Street, 9, Vera, Tbilisi", "lat": 41.71, "lng": 44.81,
         }
     finally:
         server.app.dependency_overrides.pop(server.get_current_user, None)
