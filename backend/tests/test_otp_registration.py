@@ -55,6 +55,39 @@ def _read_otp_from_logs(email: str, timeout: float = 6.0) -> str:
     return code
 
 
+def _read_phone_otp_from_logs(phone: str, timeout: float = 6.0) -> str:
+    deadline = time.time() + timeout
+    pattern = re.compile(rf"OTP\] Phone verification code for {re.escape(phone)}: (\d{{6}})")
+    code = None
+    while time.time() < deadline:
+        try:
+            out = subprocess.check_output(
+                "grep -ah 'OTP] Phone verification code' /var/log/supervisor/backend.*.log | tail -200",
+                shell=True, stderr=subprocess.DEVNULL,
+            ).decode()
+            matches = pattern.findall(out)
+            if matches:
+                code = matches[-1]
+                break
+        except Exception:
+            pass
+        time.sleep(0.3)
+    assert code, f"Could not find phone OTP for {phone} in backend logs"
+    return code
+
+
+def _register_supplier(payload):
+    phone = payload["phone"]
+    sent = requests.post(f"{API}/phone-otp", json={"phone": phone})
+    assert sent.status_code == 200, sent.text
+    code = _read_phone_otp_from_logs(phone)
+    verified = requests.post(f"{API}/verify-otp", json={"phone": phone, "code": code})
+    assert verified.status_code == 200, verified.text
+    return requests.post(f"{API}/auth/register", json={
+        **payload, "phone_verification_token": verified.json()["verification_token"],
+    })
+
+
 @pytest.fixture
 def supplier_payload():
     email = _unique_email()
@@ -79,7 +112,7 @@ def supplier_payload():
 
 class TestRegistration:
     def test_register_returns_verification_required_no_token(self, supplier_payload):
-        r = requests.post(f"{API}/auth/register", json=supplier_payload)
+        r = _register_supplier(supplier_payload)
         assert r.status_code == 200, r.text
         data = r.json()
         assert data.get("verification_required") is True
@@ -98,7 +131,7 @@ class TestRegistration:
         assert r.status_code == 422
 
     def test_unverified_login_returns_403(self, supplier_payload):
-        rr = requests.post(f"{API}/auth/register", json=supplier_payload)
+        rr = _register_supplier(supplier_payload)
         assert rr.status_code == 200
         r = requests.post(f"{API}/auth/login", json={
             "email": supplier_payload["email"], "password": supplier_payload["password"]
@@ -112,7 +145,7 @@ class TestRegistration:
 class TestOtpVerifyAndPersistence:
     @pytest.fixture
     def registered_supplier(self, supplier_payload):
-        r = requests.post(f"{API}/auth/register", json=supplier_payload)
+        r = _register_supplier(supplier_payload)
         assert r.status_code == 200, r.text
         return supplier_payload
 
@@ -173,7 +206,7 @@ class TestOtpVerifyAndPersistence:
             assert u[k] == v, f"profile update field {k} did not persist (got {u.get(k)})"
 
     def test_verify_wrong_5_times_returns_429(self, supplier_payload):
-        requests.post(f"{API}/auth/register", json=supplier_payload)
+        _register_supplier(supplier_payload)
         email = supplier_payload["email"].lower()
         last = None
         for _ in range(5):
@@ -191,7 +224,7 @@ class TestOtpVerifyAndPersistence:
 
 class TestResendOtp:
     def test_resend_throttled_and_already_verified(self, supplier_payload):
-        requests.post(f"{API}/auth/register", json=supplier_payload)
+        _register_supplier(supplier_payload)
         email = supplier_payload["email"].lower()
 
         # Register just issued an OTP (<45s ago) -> immediate resend should 429

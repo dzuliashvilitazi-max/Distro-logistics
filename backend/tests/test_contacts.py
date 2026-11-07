@@ -199,14 +199,20 @@ def test_registration_adds_admin_to_new_account_contacts(monkeypatch):
     async def no_op_issue_otp(*args, **kwargs):
         return None
 
+    async def no_op_phone_verification(*args, **kwargs):
+        return None
+
     monkeypatch.setattr(server, "is_disposable_email", lambda email: False)
     monkeypatch.setattr(server, "issue_otp", no_op_issue_otp)
+    monkeypatch.setattr(server, "consume_phone_verification", no_op_phone_verification)
     try:
         response = client.post("/api/auth/register", json={
             "email": "new-user@example.com",
             "password": "valid-password-123",
             "name": "New User",
             "role": "retailer",
+            "phone": "+995555000006",
+            "phone_verification_token": "test-verification-proof",
             "identification_number": "12345678901",
             "vat_registered": False,
             "accept_terms": True,

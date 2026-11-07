@@ -55,6 +55,16 @@ export function AuthProvider({ children }) {
     await api.post("/auth/resend-otp", { email });
   };
 
+  const requestPhoneOtp = async (phone) => {
+    const { data } = await api.post("/phone-otp", { phone });
+    return data;
+  };
+
+  const verifyPhoneOtp = async (phone, code) => {
+    const { data } = await api.post("/verify-otp", { phone, code });
+    return data;
+  };
+
   const logout = () => {
     unsubscribeFromPush(localStorage.getItem("distro_token"));
     localStorage.removeItem("distro_token");
@@ -67,7 +77,7 @@ export function AuthProvider({ children }) {
   };
 
   return (
-    <AuthContext.Provider value={{ user, loading, login, completeStaffPasswordReset, register, verifyOtp, resendOtp, logout, refreshUser, setUser }}>
+    <AuthContext.Provider value={{ user, loading, login, completeStaffPasswordReset, register, verifyOtp, resendOtp, requestPhoneOtp, verifyPhoneOtp, logout, refreshUser, setUser }}>
       {children}
     </AuthContext.Provider>
   );
