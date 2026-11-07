@@ -1,10 +1,10 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
 import { useI18n } from "@/context/I18nContext";
 import { requestErrorMessage } from "@/lib/api";
 import { PublicLangSwitcher } from "@/pages/Landing";
-import { Truck, Store, Warehouse, Loader2, ArrowRight, Mail, Phone, CheckCircle2 } from "lucide-react";
+import { Truck, Store, Warehouse, Loader2, ArrowRight, Mail } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -16,7 +16,7 @@ import { cn } from "@/lib/utils";
 
 export default function Auth({ mode }) {
   const isRegister = mode === "register";
-  const { login, register, verifyOtp, resendOtp, requestPhoneOtp, verifyPhoneOtp, completeStaffPasswordReset } = useAuth();
+  const { login, register, verifyOtp, resendOtp, completeStaffPasswordReset } = useAuth();
   const { t } = useI18n();
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
@@ -26,94 +26,22 @@ export default function Auth({ mode }) {
   const [code, setCode] = useState("");
   const [verifying, setVerifying] = useState(false);
   const [mustChangePassword, setMustChangePassword] = useState(false);
-  const [phoneOtpRequested, setPhoneOtpRequested] = useState(false);
-  const [phoneOtpPhone, setPhoneOtpPhone] = useState("");
-  const [phoneOtpCode, setPhoneOtpCode] = useState("");
-  const [phoneOtpDeadline, setPhoneOtpDeadline] = useState(null);
-  const [phoneOtpRemaining, setPhoneOtpRemaining] = useState(0);
-  const [phoneOtpLoading, setPhoneOtpLoading] = useState(false);
-  const [phoneVerified, setPhoneVerified] = useState(false);
-  const [phoneVerificationToken, setPhoneVerificationToken] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [form, setForm] = useState({ email: "", password: "", name: "", business_name: "", address: "", city: "", cities: [], phone: "", category: "", category_ids: [], business_sectors: [], identification_number: "", vat_registered: null, establishment_type: "grocery", establishment_type_other: "", card_name: "", card_number: "", card_expiry: "", bank_name: "", iban: "" });
 
-  useEffect(() => {
-    if (!phoneOtpDeadline) return undefined;
-    const updateRemaining = () => setPhoneOtpRemaining(Math.max(0, Math.ceil((phoneOtpDeadline - Date.now()) / 1000)));
-    updateRemaining();
-    const timer = window.setInterval(updateRemaining, 1000);
-    return () => window.clearInterval(timer);
-  }, [phoneOtpDeadline]);
-
   const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
-
-  const clearPhoneVerification = () => {
-    setPhoneOtpRequested(false);
-    setPhoneOtpPhone("");
-    setPhoneOtpCode("");
-    setPhoneOtpDeadline(null);
-    setPhoneOtpRemaining(0);
-    setPhoneVerified(false);
-    setPhoneVerificationToken("");
-  };
-
-  const setPhone = (event) => {
-    setForm((current) => ({ ...current, phone: event.target.value }));
-    clearPhoneVerification();
-  };
-
-  const sendPhoneCode = async () => {
-    const phone = form.phone.replace(/[\s()-]/g, "");
-    if (!/^\+9955\d{8}$/.test(phone)) {
-      toast.error(t("auth.phoneFormatInvalid"));
-      return;
-    }
-    setPhoneOtpLoading(true);
-    try {
-      const result = await requestPhoneOtp(phone);
-      setForm((current) => ({ ...current, phone: result.phone }));
-      setPhoneOtpPhone(result.phone);
-      setPhoneOtpCode("");
-      setPhoneOtpRequested(true);
-      setPhoneVerified(false);
-      setPhoneVerificationToken("");
-      setPhoneOtpDeadline(Date.now() + result.expires_in * 1000);
-      toast.success(t("auth.phoneOtpSent"));
-    } catch (requestError) {
-      toast.error(requestErrorMessage(requestError));
-    } finally {
-      setPhoneOtpLoading(false);
-    }
-  };
-
-  const confirmPhoneCode = async () => {
-    setPhoneOtpLoading(true);
-    try {
-      const result = await verifyPhoneOtp(phoneOtpPhone, phoneOtpCode);
-      setPhoneVerificationToken(result.verification_token);
-      setPhoneVerified(true);
-      setPhoneOtpDeadline(null);
-      setPhoneOtpRemaining(0);
-      toast.success(t("auth.phoneOtpVerified"));
-    } catch (requestError) {
-      toast.error(requestErrorMessage(requestError));
-    } finally {
-      setPhoneOtpLoading(false);
-    }
-  };
 
   const submit = async (e) => {
     e.preventDefault();
     if (isRegister && !agreed) { toast.error(t("auth.mustAgree")); return; }
-    if (isRegister && (!phoneVerified || !phoneVerificationToken)) { toast.error(t("auth.phoneOtpRequired")); return; }
     if (isRegister && form.vat_registered === null) { toast.error(t("vat.required")); return; }
     if (isRegister && role === "supplier" && !isValidGeIban(form.iban)) { toast.error("IBAN: GE + 20 სიმბოლო (მაგ. GE29TB1234567890123456)"); return; }
     setLoading(true);
     try {
       if (isRegister) {
         const extra = role === "supplier" ? { card_name: "", card_number: "", card_expiry: "" } : {};
-        const res = await register({ ...form, ...extra, role, accept_terms: true, phone_verification_token: phoneVerificationToken });
+        const res = await register({ ...form, ...extra, role, accept_terms: true });
         if (res.verification_required) {
           setVerifyEmail(res.email);
           toast.success(`${t("verify.sentTo")} ${res.email}`);
@@ -231,28 +159,7 @@ export default function Auth({ mode }) {
                 <div><Label htmlFor="name">{t("auth.contactName")}</Label><Input id="name" required value={form.name} onChange={set("name")} className="mt-1.5" data-testid="register-name" /></div>
                 <div><Label htmlFor="business">{t("auth.businessName")}</Label><Input id="business" required value={form.business_name} onChange={set("business_name")} className="mt-1.5" data-testid="register-business" /></div>
                 <div><Label htmlFor="address">{t("auth.businessAddress")}</Label><Input id="address" value={form.address} onChange={set("address")} className="mt-1.5" data-testid="register-address" /></div>
-                <div className="space-y-2">
-                  <div><Label htmlFor="phone">{t("auth.phone")}</Label><Input id="phone" type="tel" required value={form.phone} onChange={setPhone} className="mt-1.5" data-testid="register-phone" placeholder="+995 5XX XXX XXX" /></div>
-                  <Button type="button" variant="outline" className="w-full" onClick={sendPhoneCode} disabled={phoneOtpLoading || phoneVerified || phoneOtpRemaining > 0} data-testid="register-phone-send-code">
-                    {phoneOtpLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Phone className="h-4 w-4" />}
-                    {phoneOtpRequested ? t("auth.phoneOtpResend") : t("auth.phoneOtpSend")}
-                  </Button>
-                  {phoneOtpRequested && !phoneVerified && (
-                    <div className="space-y-2 rounded-lg border border-border p-3">
-                      <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
-                        <Label htmlFor="phone-otp-code">{t("auth.phoneOtpCode")}</Label>
-                        <span role="status" data-testid="register-phone-otp-timer">{phoneOtpRemaining > 0
-                          ? `${t("auth.phoneOtpExpires")} ${String(Math.floor(phoneOtpRemaining / 60)).padStart(2, "0")}:${String(phoneOtpRemaining % 60).padStart(2, "0")}`
-                          : t("auth.phoneOtpExpired")}</span>
-                      </div>
-                      <Input id="phone-otp-code" inputMode="numeric" autoComplete="one-time-code" maxLength={6} value={phoneOtpCode} onChange={(event) => setPhoneOtpCode(event.target.value.replace(/\D/g, "").slice(0, 6))} data-testid="register-phone-otp-code" />
-                      <Button type="button" className="w-full" onClick={confirmPhoneCode} disabled={phoneOtpLoading || phoneOtpCode.length !== 6 || phoneOtpRemaining === 0} data-testid="register-phone-otp-verify">
-                        {phoneOtpLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}{t("auth.phoneOtpVerify")}
-                      </Button>
-                    </div>
-                  )}
-                  {phoneVerified && <p className="flex items-center gap-1.5 text-sm font-medium text-emerald-600" role="status" data-testid="register-phone-verified"><CheckCircle2 className="h-4 w-4" />{t("auth.phoneOtpVerified")}</p>}
-                </div>
+                <div><Label htmlFor="phone">{t("auth.phone")}</Label><Input id="phone" type="tel" value={form.phone} onChange={set("phone")} className="mt-1.5" data-testid="register-phone" placeholder="+995 5XX XXX XXX" /></div>
                 <div className="grid grid-cols-2 gap-3">
                   <div><Label>{t("reg.city")}</Label>
                     <div className="mt-1.5"><CityMultiSelect single value={form.city ? [form.city] : []} onChange={([city]) => setForm((f) => ({ ...f, city: city || "" }))} idPrefix="register-city" placeholder="—" /></div></div>
@@ -336,7 +243,7 @@ export default function Auth({ mode }) {
                 </span>
               </label>
             )}
-            <Button type="submit" className="h-11 w-full text-base" disabled={loading || (isRegister && (!agreed || !phoneVerified))} data-testid="auth-submit">
+            <Button type="submit" className="h-11 w-full text-base" disabled={loading || (isRegister && !agreed)} data-testid="auth-submit">
               {loading ? <Loader2 className="h-5 w-5 animate-spin" /> : <>{isRegister ? t("auth.createAccount") : t("auth.signIn")} <ArrowRight className="ml-1.5 h-4 w-4" /></>}
             </Button>
           </form>

@@ -553,8 +553,7 @@ class RegisterIn(BaseModel):
     city: Optional[str] = ""
     cities: List[str] = Field(default_factory=list)
     identification_number: str  # Tax ID / Personal ID (mandatory)
-    phone: str = Field(min_length=13, max_length=13)
-    phone_verification_token: Optional[str] = None
+    phone: Optional[str] = ""
     category: Optional[str] = ""  # legacy free-text category (kept for compatibility)
     category_ids: List[str] = Field(default_factory=list)  # supplier: selected Category ids (many-to-many)
     business_sectors: List[str] = Field(default_factory=list)  # supplier: served business sectors
@@ -583,7 +582,7 @@ class RegisterIn(BaseModel):
     @field_validator("phone", mode="before")
     @classmethod
     def validate_phone_number(cls, value):
-        return normalize_georgian_phone(value)
+        return normalize_georgian_phone(value) if value else ""
 
     @field_validator('identification_number')
     @classmethod
@@ -741,18 +740,6 @@ class VerifyOtpIn(BaseModel):
     email: EmailStr
     code: str
 
-
-class PhoneOtpIn(BaseModel):
-    phone: str
-
-    @field_validator("phone", mode="before")
-    @classmethod
-    def validate_phone_number(cls, value):
-        return normalize_georgian_phone(value)
-
-
-class VerifyPhoneOtpIn(PhoneOtpIn):
-    code: str = Field(pattern=r"^\d{6}$")
 
 class ForgotPasswordIn(BaseModel):
     email: EmailStr
@@ -1497,115 +1484,14 @@ def normalize_georgian_phone(value: str) -> str:
     return phone
 
 
-def hash_phone_otp(phone: str, code: str) -> str:
-    return hashlib.sha256(f"{phone}:{code}:{JWT_SECRET}".encode()).hexdigest()
-
-
-PHONE_OTP_LIFETIME = timedelta(minutes=4)
-PHONE_OTP_RESEND_SECONDS = 45
-PHONE_OTP_MAX_ATTEMPTS = 5
-
-
-async def send_phone_sms(phone: str, code: str) -> None:
-    account_sid = os.environ.get("TWILIO_ACCOUNT_SID", "").strip()
-    auth_token = os.environ.get("TWILIO_AUTH_TOKEN", "").strip()
-    from_number = os.environ.get("TWILIO_FROM_NUMBER", "").strip()
-    message = f"Distro Logistics verification code: {code}. It expires in 4 minutes."
-    if not account_sid or not auth_token or not from_number:
-        if os.environ.get("APP_ENV", "").strip().lower() in {"development", "dev", "test", "testing"}:
-            logger.info("[OTP] Phone verification code for %s: %s", phone, code)
-            return
-        raise HTTPException(503, "Phone verification is not configured.")
-    url = f"https://api.twilio.com/2010-04-01/Accounts/{account_sid}/Messages.json"
-    try:
-        async with httpx.AsyncClient(timeout=10, auth=(account_sid, auth_token)) as client:
-            response = await client.post(url, data={"To": phone, "From": from_number, "Body": message})
-            response.raise_for_status()
-    except httpx.HTTPError as error:
-        logger.warning("Phone verification SMS delivery failed: %s", type(error).__name__)
-        raise HTTPException(503, "Could not send the verification SMS. Please try again.") from error
-
-
-async def issue_phone_otp(phone: str) -> dict:
-    now = datetime.now(timezone.utc)
-    collection = db.phone_otps
-    previous = await collection.find_one({"phone": phone}, {"_id": 0})
-    last_sent_at = (previous or {}).get("last_sent_at")
-    if last_sent_at and (now - last_sent_at).total_seconds() < PHONE_OTP_RESEND_SECONDS:
-        raise HTTPException(429, "Please wait before requesting another phone verification code.")
-
-    code = f"{secrets.randbelow(1_000_000):06d}"
-    challenge_id = str(uuid.uuid4())
-    await collection.update_one(
-        {"phone": phone},
-        {"$set": {
-            "id": challenge_id, "phone": phone,
-            "otp_code_hash": hash_phone_otp(phone, code),
-            "expires_at": now + PHONE_OTP_LIFETIME,
-            "attempts": 0, "last_sent_at": now, "verified": False, "consumed": False,
-        }},
-        upsert=True,
-    )
-    try:
-        await send_phone_sms(phone, code)
-    except HTTPException:
-        await collection.delete_one({"id": challenge_id})
-        raise
-    return {"phone": phone, "expires_in": int(PHONE_OTP_LIFETIME.total_seconds())}
-
-
 @api.post("/phone-otp")
-async def request_phone_otp(body: PhoneOtpIn):
-    return await issue_phone_otp(body.phone)
+async def request_phone_otp():
+    return {"verification_required": False, "message": "Phone verification is disabled."}
 
 
 @api.post("/verify-otp")
-async def verify_phone_otp(body: VerifyPhoneOtpIn):
-    collection = db.phone_otps
-    challenge = await collection.find_one({"phone": body.phone}, {"_id": 0})
-    if not challenge or challenge.get("consumed"):
-        raise HTTPException(400, "No pending phone verification for this number.")
-    expires_at = challenge.get("expires_at")
-    if not expires_at or expires_at <= datetime.now(timezone.utc):
-        raise HTTPException(400, "Phone verification code has expired. Request a new one.")
-    if challenge.get("attempts", 0) >= PHONE_OTP_MAX_ATTEMPTS:
-        raise HTTPException(429, "Too many attempts. Request a new phone verification code.")
-    if not secrets.compare_digest(challenge["otp_code_hash"], hash_phone_otp(body.phone, body.code)):
-        await collection.update_one({"id": challenge["id"]}, {"$inc": {"attempts": 1}})
-        raise HTTPException(400, "Invalid phone verification code.")
-    verified = await collection.update_one(
-        {"id": challenge["id"], "verified": False, "consumed": False},
-        {"$set": {
-            "verified": True, "otp_code_hash": None,
-            "verified_at": datetime.now(timezone.utc),
-            "expires_at": datetime.now(timezone.utc) + timedelta(minutes=5),
-        }},
-    )
-    if verified.modified_count != 1:
-        raise HTTPException(409, "Phone verification changed. Request a new code.")
-    verification_token = jwt.encode({
-        "sub": body.phone, "type": "phone_verification", "jti": challenge["id"],
-        "exp": datetime.now(timezone.utc) + timedelta(minutes=5),
-    }, JWT_SECRET, algorithm=JWT_ALGORITHM)
-    return {"phone": body.phone, "verification_token": verification_token, "expires_in": 300}
-
-
-async def consume_phone_verification(token: Optional[str], phone: str) -> None:
-    if not token:
-        raise HTTPException(400, "Verify your phone number before completing registration.")
-    try:
-        payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
-    except jwt.InvalidTokenError as error:
-        raise HTTPException(400, "Phone verification expired. Verify your number again.") from error
-    if payload.get("type") != "phone_verification" or payload.get("sub") != phone:
-        raise HTTPException(400, "Phone verification does not match the registration number.")
-    challenge_id = payload.get("jti")
-    result = await db.phone_otps.update_one(
-        {"id": challenge_id, "phone": phone, "verified": True, "consumed": False},
-        {"$set": {"consumed": True, "consumed_at": datetime.now(timezone.utc)}},
-    )
-    if result.modified_count != 1:
-        raise HTTPException(400, "Phone verification was already used. Verify your number again.")
+async def verify_phone_otp():
+    return {"verified": True, "verification_required": False}
 
 
 async def issue_otp(email: str, name: str) -> None:
@@ -1635,7 +1521,6 @@ async def register(body: RegisterIn, request: Request):
         raise HTTPException(400, "Identification number is required")
     if not body.accept_terms:
         raise HTTPException(400, "You must accept the Terms of Service and Privacy Policy to create an account.")
-    await consume_phone_verification(body.phone_verification_token, body.phone)
     terms_version = "2026-06-01"
     accepted_at = now_iso()
     xff = request.headers.get("x-forwarded-for", "")
@@ -1644,7 +1529,7 @@ async def register(body: RegisterIn, request: Request):
     user = {
         "id": uid, "email": email, "password_hash": hash_password(body.password),
         "name": body.name, "role": body.role, "business_name": body.business_name or body.name,
-        "address": body.address or "", "phone": body.phone, "phone_verified": True,
+        "address": body.address or "", "phone": body.phone or "",
         "otp_code_hash": None, "city": _canon_city(body.city),
         "cities": _normalize_service_cities(body.cities, body.city) if body.role == "supplier" else [],
         "identification_number": body.identification_number.strip(),
@@ -11135,8 +11020,6 @@ async def ensure_startup_indexes():
 
     steps = [
         ("email_otps.email", db.email_otps.create_index("email", unique=True)),
-        ("phone_otps.phone", db.phone_otps.create_index("phone", unique=True)),
-        ("phone_otps.expiry", db.phone_otps.create_index("expires_at", expireAfterSeconds=0)),
         ("bank_payments.id", db.bank_payments.create_index("id", unique=True)),
         ("bank_payments.pay_id", db.bank_payments.create_index("pay_id", unique=True)),
         ("product_returns.id", db.product_returns.create_index("id", unique=True)),

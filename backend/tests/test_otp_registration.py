@@ -55,37 +55,8 @@ def _read_otp_from_logs(email: str, timeout: float = 6.0) -> str:
     return code
 
 
-def _read_phone_otp_from_logs(phone: str, timeout: float = 6.0) -> str:
-    deadline = time.time() + timeout
-    pattern = re.compile(rf"OTP\] Phone verification code for {re.escape(phone)}: (\d{{6}})")
-    code = None
-    while time.time() < deadline:
-        try:
-            out = subprocess.check_output(
-                "grep -ah 'OTP] Phone verification code' /var/log/supervisor/backend.*.log | tail -200",
-                shell=True, stderr=subprocess.DEVNULL,
-            ).decode()
-            matches = pattern.findall(out)
-            if matches:
-                code = matches[-1]
-                break
-        except Exception:
-            pass
-        time.sleep(0.3)
-    assert code, f"Could not find phone OTP for {phone} in backend logs"
-    return code
-
-
 def _register_supplier(payload):
-    phone = payload["phone"]
-    sent = requests.post(f"{API}/phone-otp", json={"phone": phone})
-    assert sent.status_code == 200, sent.text
-    code = _read_phone_otp_from_logs(phone)
-    verified = requests.post(f"{API}/verify-otp", json={"phone": phone, "code": code})
-    assert verified.status_code == 200, verified.text
-    return requests.post(f"{API}/auth/register", json={
-        **payload, "phone_verification_token": verified.json()["verification_token"],
-    })
+    return requests.post(f"{API}/auth/register", json=payload)
 
 
 @pytest.fixture
