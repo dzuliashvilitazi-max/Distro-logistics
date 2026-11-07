@@ -47,6 +47,7 @@ export default function DriverRoute() {
   const [busy, setBusy] = useState(false);
   const [deliveringId, setDeliveringId] = useState(null);
   const [gpsError, setGpsError] = useState("");
+  const [wakeLockStatus, setWakeLockStatus] = useState("");
   const handleGoogleMapError = useCallback(() => {
     console.error("Could not load Google Maps for the shared driver route.");
     setGoogleMapError(true);
@@ -116,6 +117,52 @@ export default function DriverRoute() {
     };
   }, [route?.tracking_active, token, t]);
 
+  useEffect(() => {
+    if (!route?.tracking_active) return undefined;
+    const wakeLock = navigator.wakeLock;
+    if (!wakeLock?.request) {
+      setWakeLockStatus("unavailable");
+      return undefined;
+    }
+    let active = true;
+    let requesting = false;
+    let sentinel = null;
+    setWakeLockStatus("unavailable");
+
+    const requestWakeLock = async () => {
+      if (!active || requesting || document.visibilityState !== "visible" || sentinel && !sentinel.released) return;
+      requesting = true;
+      try {
+        const lock = await wakeLock.request("screen");
+        if (!active) {
+          await lock.release();
+          return;
+        }
+        sentinel = lock;
+        setWakeLockStatus("active");
+        lock.addEventListener("release", () => {
+          if (active) setWakeLockStatus("unavailable");
+        }, { once: true });
+      } catch (wakeLockError) {
+        if (active) setWakeLockStatus("unavailable");
+      } finally {
+        requesting = false;
+      }
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") void requestWakeLock();
+    };
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    void requestWakeLock();
+
+    return () => {
+      active = false;
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+      if (sentinel && !sentinel.released) void sentinel.release();
+    };
+  }, [route?.tracking_active]);
+
   const startRoute = async () => {
     setBusy(true);
     try {
@@ -171,6 +218,11 @@ export default function DriverRoute() {
             <span className="inline-flex items-center gap-2"><Phone className="h-4 w-4 text-highlight" />{route.driver_phone}</span>
             <span className="inline-flex items-center gap-2"><CalendarClock className="h-4 w-4 text-highlight" />{new Date(route.scheduled_at).toLocaleString(lang === "ka" ? "ka-GE" : lang)}</span>
           </div>
+          {route.tracking_active && wakeLockStatus && (
+            <p role="status" className="mt-3 text-xs text-muted-foreground">
+              {t(wakeLockStatus === "active" ? "driver.screenAwake" : "driver.keepScreenAwake")}
+            </p>
+          )}
           {route.stops.some((stop) => stop.status === "Processing") && (
             <Button type="button" className="mt-4 h-12 w-full text-base font-bold sm:w-auto" disabled={busy} onClick={startRoute} data-testid="start-route">
               {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}{t("driver.startRoute")}

@@ -1371,6 +1371,8 @@ Object.assign(en, {
   "orders.referenceHint": "Include this code in the transfer description:",
   "orders.assignedDriver": "Driver",
   "driver.startRoute": "Start route", "driver.routeStarted": "Route started — orders are now In Transit.",
+  "driver.screenAwake": "Screen stays awake while route tracking is active.",
+  "driver.keepScreenAwake": "Keep this page open. This browser cannot keep the screen awake; background GPS may pause.",
   "driver.geofenceWaiting": "GPS will mark this delivery complete when you reach the destination.",
   "driver.geofenceDelivered": "Delivery marked complete by GPS.",
   "driver.deliver": "Deliver / ჩაბარებულია", "driver.cashCollected": "Cash Collected", "driver.onCredit": "Consignment / On Credit",
@@ -1398,6 +1400,8 @@ Object.assign(ka, {
   "orders.referenceHint": "გადახდის დანიშნულებაში მიუთითეთ ეს კოდი:",
   "orders.assignedDriver": "მძღოლი",
   "driver.startRoute": "მარშრუტის დაწყება", "driver.routeStarted": "მარშრუტი დაიწყო — შეკვეთები გზაშია.",
+  "driver.screenAwake": "მარშრუტის მიმდინარეობისას ეკრანი ჩართული დარჩება.",
+  "driver.keepScreenAwake": "გვერდი ღია დატოვეთ. ბრაუზერი ეკრანს ვერ აღვიძებს; ფონურ რეჟიმში GPS შეიძლება შეჩერდეს.",
   "driver.geofenceWaiting": "დანიშნულების ადგილთან GPS ავტომატურად დააფიქსირებს მიწოდებას.",
   "driver.geofenceDelivered": "GPS-ით მიწოდება ავტომატურად დაფიქსირდა.",
   "driver.deliver": "ჩაბარებულია", "driver.cashCollected": "ნაღდი ფული მიღებულია", "driver.onCredit": "კონსიგნაცია / განვადება",
@@ -1434,4 +1438,8 @@ Object.assign(ka, {
   'logo.hint': 'PNG, JPG, WEBP ან GIF, მაქსიმუმ 2 MB. ჩანს თქვენს ანგარიშში და ექსპორტირებულ ანგარიშებში.',
   'logo.updated': 'ლოგო განახლდა.', 'logo.removed': 'ლოგო წაიშალა.',
   'logo.invalidType': 'აირჩიეთ სურათის ფაილი.', 'logo.tooLarge': 'ლოგო უნდა იყოს მაქსიმუმ 2 MB.',
+});
+Object.assign(ru, {
+  'driver.screenAwake': 'Экран останется включенным, пока маршрут активен.',
+  'driver.keepScreenAwake': 'Оставьте страницу открытой. Браузер не может удерживать экран включенным; GPS в фоне может приостановиться.',
 });
