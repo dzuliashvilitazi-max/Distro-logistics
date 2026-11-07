@@ -6016,6 +6016,52 @@ async def _geocode_address(address: str) -> dict:
             raise HTTPException(502, "Address lookup returned invalid coordinates.") from error
 
 
+async def _geocode_delivery_stops(active_orders: List[dict], warehouse: dict, supplier_id: str) -> tuple:
+    stops, unrouted_stops = [], []
+    for order in active_orders:
+        address = ", ".join(
+            part.strip() for part in (
+                order.get("delivery_address"), warehouse.get("city"), "Georgia",
+            ) if part and part.strip()
+        )
+        coordinates = order.get("route_coordinates")
+        if (
+            order.get("route_address") != order.get("delivery_address", "")
+            or not isinstance(coordinates, dict)
+            or not isinstance(coordinates.get("lat"), (int, float))
+            or not isinstance(coordinates.get("lon"), (int, float))
+        ):
+            try:
+                coordinates = await _geocode_address(address)
+            except HTTPException as error:
+                if error.status_code != 422:
+                    raise
+                order_no = order.get("order_no", order.get("id", ""))
+                logger.warning("Skipping delivery stop %s: address was not found by Nominatim.", order_no)
+                unrouted_stops.append({
+                    "order_id": order["id"], "order_no": order_no,
+                    "retailer_name": order.get("retailer_name", ""),
+                    "address": order.get("delivery_address", ""),
+                    "reason": "address_not_found",
+                })
+                continue
+            await db.orders.update_one({"id": order["id"], "supplier_id": supplier_id}, {
+                "$set": {"route_coordinates": coordinates, "route_address": order.get("delivery_address", "")}
+            })
+        stops.append({
+            "order_id": order["id"],
+            "order_no": order.get("order_no", ""),
+            "retailer_name": order.get("retailer_name", ""),
+            "address": order.get("delivery_address", ""),
+            "delivery_window": order.get("delivery_window", ""),
+            "status": order.get("status", ""),
+            "is_external": bool(order.get("external_order") or order.get("is_external")),
+            "lat": coordinates["lat"],
+            "lon": coordinates["lon"],
+        })
+    return stops, unrouted_stops
+
+
 @api.post("/delivery-routes/optimize")
 async def optimize_delivery_route(
     body: DeliveryRouteIn,
@@ -6112,40 +6158,9 @@ async def optimize_delivery_route(
                 "route_coordinates": origin, "route_origin_address": warehouse_address,
             }})
 
-    stops = []
-    for order in active_orders:
-        address = ", ".join(
-            part.strip() for part in (
-                order.get("delivery_address"), warehouse.get("city"), "Georgia",
-            ) if part and part.strip()
-        )
-        coordinates = order.get("route_coordinates")
-        if (
-            order.get("route_address") != order.get("delivery_address", "")
-            or not isinstance(coordinates, dict)
-            or not isinstance(coordinates.get("lat"), (int, float))
-            or not isinstance(coordinates.get("lon"), (int, float))
-        ):
-            try:
-                coordinates = await _geocode_address(address)
-            except HTTPException as error:
-                if error.status_code == 422:
-                    raise HTTPException(422, f"Could not locate delivery for order {order.get('order_no', '')}. Check its delivery address.")
-                raise
-            await db.orders.update_one({"id": order["id"], "supplier_id": owner_id}, {
-                "$set": {"route_coordinates": coordinates, "route_address": order.get("delivery_address", "")}
-            })
-        stops.append({
-            "order_id": order["id"],
-            "order_no": order.get("order_no", ""),
-            "retailer_name": order.get("retailer_name", ""),
-            "address": order.get("delivery_address", ""),
-            "delivery_window": order.get("delivery_window", ""),
-            "status": order.get("status", ""),
-            "is_external": bool(order.get("external_order") or order.get("is_external")),
-            "lat": coordinates["lat"],
-            "lon": coordinates["lon"],
-        })
+    stops, unrouted_stops = await _geocode_delivery_stops(active_orders, warehouse, owner_id)
+    if not stops:
+        raise HTTPException(422, "No delivery addresses could be located. Check the selected orders and try again.")
 
     coordinates = [f"{origin['lon']},{origin['lat']}"] + [f"{stop['lon']},{stop['lat']}" for stop in stops]
     coordinate_path = ";".join(coordinates)
@@ -6178,6 +6193,7 @@ async def optimize_delivery_route(
             "supplier_name": user.get("business_name") or user.get("name", ""),
             "origin": origin,
             "stops": ordered_stops,
+            "unrouted_stops": unrouted_stops,
             "geometry": geometry,
             "distance_meters": round(float(trip["distance"])),
             "duration_seconds": round(float(trip["duration"])),

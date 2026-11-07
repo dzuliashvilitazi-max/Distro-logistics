@@ -10,7 +10,7 @@ import { googleNavigationUrl, launchYandexNavigation } from "@/lib/navigation";
 import { toast } from "sonner";
 import {
   ArrowDown, ArrowUp, CalendarClock, Clock3, Copy, LocateFixed, MapPin, Navigation, Phone, Route as RouteIcon,
-  Trash2, Truck, UserRound, Map as MapIcon,
+  Trash2, Truck, UserRound, Map as MapIcon, TriangleAlert,
 } from "lucide-react";
 
 import "leaflet/dist/leaflet.css";
@@ -476,6 +476,20 @@ export default function DeliveryRoute() {
               <p className="mt-1 text-2xl font-bold text-foreground">{formatDuration(route.duration_seconds)}</p>
             </div>
           </div>
+
+          {route.unrouted_stops?.length > 0 && (
+            <section className="rounded-lg border border-warning/30 bg-warning/5 p-4" role="alert" data-testid="unrouted-stops">
+              <p className="flex items-center gap-2 text-sm font-semibold text-warning">
+                <TriangleAlert className="h-4 w-4 shrink-0" />
+                {t("route.unroutedWarning")}
+              </p>
+              <ul className="mt-2 space-y-1 text-xs text-muted-foreground">
+                {route.unrouted_stops.map((stop) => (
+                  <li key={stop.order_id}>{stop.order_no} · {stop.address || t("route.addressUnavailable")}</li>
+                ))}
+              </ul>
+            </section>
+          )}
 
           <div className="grid gap-5 xl:grid-cols-[minmax(0,1.6fr)_minmax(330px,0.9fr)]">
             <section className="overflow-hidden rounded-xl border border-border bg-card p-2 shadow-sm" aria-label={t("route.mapLabel")}>

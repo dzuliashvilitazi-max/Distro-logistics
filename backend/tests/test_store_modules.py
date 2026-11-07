@@ -1,3 +1,4 @@
+import asyncio
 import copy
 import hashlib
 import sys
@@ -192,6 +193,33 @@ def test_profile_contact_update_syncs_default_branch(monkeypatch):
         assert default_branch["phone"] == "+995555123456"
     finally:
         server.app.dependency_overrides.pop(server.get_current_user, None)
+
+
+def test_delivery_geocoding_skips_unmatched_stop_and_continues(monkeypatch):
+    db = type("MemoryDB", (), {
+        "orders": Collection([{"id": "order-found", "supplier_id": "supplier-1"}]),
+    })()
+
+    async def geocode(address):
+        if "unmatched" in address:
+            raise server.HTTPException(422, "Address not found")
+        return {"lat": 41.7, "lon": 44.8}
+
+    monkeypatch.setattr(server, "db", db)
+    monkeypatch.setattr(server, "_geocode_address", geocode)
+    orders = [
+        {"id": "order-missing", "order_no": "ORD-MISSING", "delivery_address": "unmatched address"},
+        {"id": "order-found", "order_no": "ORD-FOUND", "delivery_address": "Tbilisi, Rustaveli"},
+    ]
+
+    stops, unrouted_stops = asyncio.run(
+        server._geocode_delivery_stops(orders, {"city": "Tbilisi"}, "supplier-1")
+    )
+
+    assert [stop["order_id"] for stop in stops] == ["order-found"]
+    assert [stop["order_id"] for stop in unrouted_stops] == ["order-missing"]
+    assert unrouted_stops[0]["reason"] == "address_not_found"
+    assert db.orders.rows[0]["route_coordinates"] == {"lat": 41.7, "lon": 44.8}
 
 
 def test_pos_sales_sync_idempotently_calculates_branch_profit(monkeypatch):
