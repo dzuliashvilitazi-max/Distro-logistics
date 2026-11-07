@@ -36,6 +36,21 @@ def test_order_fee_precedence_and_external():
     assert money.order_fee({"total": 100, "service_fee": 5, "source": "external"}) == Decimal("0.00")
 
 
+def test_order_fee_and_total_exclude_cancelled_and_returned_goods():
+    order = {
+        "total": 100, "service_fee": 5, "status": "Delivered",
+        "items": [
+            {"quantity": 4, "returned_quantity": 2, "unit_price": 10},
+            {"quantity": 2, "returned_quantity": 0, "unit_price": 30},
+        ],
+    }
+    assert money.order_returned_total(order) == Decimal("20.00")
+    assert money.order_net_total(order) == Decimal("80.00")
+    assert money.order_fee(order) == Decimal("4.00")
+    assert money.order_fee({**order, "status": "Cancelled"}) == Decimal("0.00")
+    assert money.order_net_total({**order, "status": "Cancelled"}) == Decimal("0.00")
+
+
 def test_platform_day_uses_tbilisi_time():
     # 21:30 UTC on Jan 31 is already Feb 1 in Asia/Tbilisi (UTC+4)
     assert money.to_platform_day("2026-01-31T21:30:00+00:00") == "2026-02-01"

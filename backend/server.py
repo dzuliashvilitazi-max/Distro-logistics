@@ -4082,6 +4082,7 @@ async def create_order(body: OrderIn, user: dict = Depends(require_store_permiss
             "fee_source": commission["fee_source"],
             "status": "Pending Payment" if bank_transfer else "Pending", "delivery_address": delivery_address,
             "route_coordinates": route_coordinates, "route_address": delivery_address,
+            "commission_status": "Active",
             "branch_id": branch_id, "warehouse_id": warehouse_id,
             "notes": body.notes or "", "delivery_window": body.delivery_window or "",
             "payment_method": body.payment_method or "cash",
@@ -4432,6 +4433,7 @@ async def _start_bank_checkout(gateway: str, body: OrderIn, request: Request, us
             "supplier_tax_id": supplier.get("identification_number", "") if supplier else "",
             "bank_account_snapshot": bank_account_snapshot(supplier),
             "items": normalized_items, "total": total, "service_fee": fee,
+            "commission_status": "Active",
             "fee_payer": commission["fee_payer"], "fee_type": commission["fee_type"],
             "fee_value": commission["fee_value"], "fee_source": commission["fee_source"], "status": "Pending",
             "payment_status": "Pending", "payment_method": gateway,
@@ -7374,6 +7376,7 @@ async def apply_order_status(order: dict, status: str, actor_is_retailer: bool =
     if status == "Cancelled":
         set_fields["rejected"] = rejected
         set_fields["rejection_reason"] = (reason or "") if rejected else ""
+        set_fields["commission_status"] = "Cancelled"
     if status == "Delivered" and not order.get("delivered_at"):
         set_fields["delivered_at"] = now
         if not order.get("external_order"):
@@ -7384,6 +7387,11 @@ async def apply_order_status(order: dict, status: str, actor_is_retailer: bool =
     result = await db.orders.update_one(query, {"$set": set_fields})
     if result.modified_count != 1:
         return False
+    if status == "Cancelled" and (order.get("invoice_id") or order.get("commission_settled")):
+        await _record_commission_credit(
+            order, moneylib.order_fee(order), "Cancelled", f"cancellation:{order['id']}",
+            "Order cancelled after commission accrual.",
+        )
     route_collection = getattr(db, "delivery_routes", None)
     if status in {"Delivered", "Cancelled"} and route_collection is not None:
         route = await route_collection.find_one({
@@ -7729,6 +7737,54 @@ async def _apply_return_inventory(return_request: dict) -> None:
     await adapter.record_movements(return_request, store_tracked)
 
 
+async def _apply_return_commission_credit(return_request: dict) -> Optional[dict]:
+    order = await db.orders.find_one({
+        "id": return_request["order_id"], "supplier_id": return_request["supplier_id"],
+    }, {"_id": 0})
+    if not order:
+        raise HTTPException(404, "Order not found for the approved return.")
+    item = next((
+        line for line in order.get("items", [])
+        if line.get("product_id") == return_request["product_id"]
+    ), None)
+    if not item:
+        raise HTTPException(409, "Returned product line is missing from its order.")
+
+    net_total = moneylib.order_net_total(order)
+    await db.orders.update_one({"id": order["id"]}, {"$set": {
+        "commission_status": "Refunded" if net_total <= 0 else "Active",
+    }})
+    if not (order.get("invoice_id") or order.get("commission_settled")):
+        return None
+
+    gross_total = moneylib.q(order.get("total"))
+    gross_fee = moneylib.order_gross_fee(order)
+    if gross_total <= 0 or gross_fee <= 0:
+        return None
+    return_amount = moneylib.q(
+        moneylib.dec(item.get("unit_price", 0) or 0) * int(return_request["quantity"]),
+    )
+    credit_amount = moneylib.q(gross_fee * return_amount / gross_total)
+    if net_total <= 0:
+        prior_credits = await db.commission_ledger.find({
+            "order_id": order["id"], "type": "credit",
+        }, {"_id": 0, "amount": 1}).to_list(1000)
+        credited_before = moneylib.total_sum(entry.get("amount", 0) for entry in prior_credits)
+        credit_amount = max(moneylib.ZERO, gross_fee - credited_before)
+    transaction = await _record_commission_credit(
+        order, credit_amount, "Refunded", f"return:{return_request['id']}",
+        f"Approved return {return_request.get('id')} for {return_request['quantity']} unit(s).",
+    )
+    if transaction:
+        await log_financial_event(
+            "commission_refund_credit_created", {"id": "system", "name": "Return approval"},
+            "commission", transaction["id"],
+            after={"order_id": order["id"], "amount": transaction["amount"],
+                   "status": "Refunded", "settlement_status": "pending"},
+        )
+    return transaction
+
+
 @api.patch("/supplier/returns/{return_id}/decision")
 async def decide_return_request(
     return_id: str,
@@ -7769,6 +7825,7 @@ async def decide_return_request(
                 raise HTTPException(409, "Return request changed. Refresh and retry.")
         try:
             await _apply_return_inventory(return_request)
+            await _apply_return_commission_credit(return_request)
         except HTTPException:
             raise
         except Exception as error:
@@ -9783,6 +9840,55 @@ def _fmt(dt):
     return f"{dt.day} {georgian_months[dt.month - 1]} {dt.year}"
 
 
+async def _record_commission_credit(
+    order: dict, amount, status: str, source_id: str, reason: str,
+) -> Optional[dict]:
+    amount = moneylib.q(amount)
+    if amount <= 0:
+        return None
+    ledger = getattr(db, "commission_ledger", None)
+    if ledger is None:
+        raise HTTPException(503, "Commission ledger is unavailable; retry the accounting action.")
+    transaction_id = f"credit:{source_id}"
+    created_at = now_iso()
+    transaction = {
+        "id": transaction_id,
+        "type": "credit",
+        "status": status,
+        "settlement_status": "pending",
+        "supplier_id": order["supplier_id"],
+        "order_id": order["id"],
+        "order_no": order.get("order_no", ""),
+        "source_id": source_id,
+        "reason": reason,
+        "amount": moneylib.as_json(amount),
+        "remaining_amount": moneylib.as_json(amount),
+        "currency": "GEL",
+        "available_period": moneylib.to_platform_month(created_at),
+        "created_at": created_at,
+    }
+    await ledger.update_one({"id": transaction_id}, {"$setOnInsert": transaction}, upsert=True)
+    return await ledger.find_one({"id": transaction_id}, {"_id": 0})
+
+
+async def _record_commission_accrual(order: dict, invoice_id: str, period: str, amount) -> None:
+    amount = moneylib.q(amount)
+    if amount <= 0:
+        return
+    ledger = getattr(db, "commission_ledger", None)
+    if ledger is None:
+        raise HTTPException(503, "Commission ledger is unavailable; retry invoice generation.")
+    transaction = {
+        "id": f"accrual:{order['id']}", "type": "accrual", "status": "Active",
+        "settlement_status": "invoiced", "supplier_id": order["supplier_id"],
+        "order_id": order["id"], "order_no": order.get("order_no", ""),
+        "invoice_id": invoice_id, "period": period,
+        "amount": moneylib.as_json(amount), "remaining_amount": 0.0,
+        "currency": "GEL", "created_at": now_iso(),
+    }
+    await ledger.update_one({"id": transaction["id"]}, {"$setOnInsert": transaction}, upsert=True)
+
+
 def order_commission(o):
     return moneylib.as_json(moneylib.order_fee(o))
 
@@ -9860,30 +9966,75 @@ async def do_generate_invoices(period=None):
             "external_order": {"$ne": True},
             "delivered_at": {"$gte": start.isoformat(), "$lt": nxt.isoformat()}}, {"_id": 0}).to_list(5000)
         orders = [o for o in orders if not o.get("invoice_id") and not o.get("paid_at_checkout")]
+        orders = [o for o in orders if moneylib.order_fee(o) > 0]
+        ledger = getattr(db, "commission_ledger", None)
+        credits = await ledger.find({
+            "supplier_id": sup["id"], "type": "credit", "settlement_status": "pending",
+            "available_period": {"$lte": period_str},
+        }, {"_id": 0}).sort("created_at", 1).to_list(5000) if ledger is not None else []
         if not orders:
             continue
         line_items, amount, sales = [], moneylib.ZERO, moneylib.ZERO
         for o in orders:
             c = moneylib.order_fee(o)
-            order_total = moneylib.q(o.get("total"))
+            order_total = moneylib.order_net_total(o)
             amount += c
             sales += order_total
             line_items.append({"order_no": o["order_no"], "date": (o.get("delivered_at") or "")[:10],
-                               "order_total": moneylib.as_json(order_total), "commission": moneylib.as_json(c)})
+                               "order_total": moneylib.as_json(order_total), "commission": moneylib.as_json(c),
+                               "status": "Active"})
+        accrued_amount = amount
+        credit_balance = moneylib.total_sum(
+            credit.get("remaining_amount", credit.get("amount", 0)) for credit in credits
+        )
+        applied_credit = min(accrued_amount, credit_balance)
+        credit_to_apply = applied_credit
+        applied_credit_rows = []
+        for credit in credits:
+            if credit_to_apply <= 0:
+                break
+            remaining_credit = moneylib.q(credit.get("remaining_amount", credit.get("amount", 0)))
+            credit_amount = min(remaining_credit, credit_to_apply)
+            if credit_amount <= 0:
+                continue
+            line_items.append({
+                "type": "credit_note", "order_no": credit.get("order_no", ""),
+                "date": str(credit.get("created_at", ""))[:10], "order_total": 0.0,
+                "commission": moneylib.as_json(-credit_amount), "status": credit.get("status"),
+                "credit_note_id": credit["id"], "description": credit.get("reason", ""),
+            })
+            applied_credit_rows.append((credit, credit_amount, remaining_credit - credit_amount))
+            credit_to_apply -= credit_amount
+        amount = max(moneylib.ZERO, accrued_amount - applied_credit)
         iid = str(uuid.uuid4())
         inv = {"id": iid, "invoice_no": f"INV-{period_str.replace('-', '')}-{iid[:4].upper()}",
                "supplier_id": sup["id"], "supplier_name": sup.get("business_name", ""),
                "supplier_tax_id": sup.get("identification_number", ""), "supplier_email": sup.get("email", ""),
                "period": period_str, "period_label": label,
                "line_items": line_items, "order_count": len(orders),
-               "total_sales": moneylib.as_json(sales), "amount": moneylib.as_json(amount), "currency": "GEL",
-               "status": "pending", "issue_date": issue_dt.isoformat(), "issue_label": _fmt(issue_dt),
+               "total_sales": moneylib.as_json(sales), "gross_commission": moneylib.as_json(accrued_amount),
+               "credit_adjustment": moneylib.as_json(applied_credit), "amount": moneylib.as_json(amount), "currency": "GEL",
+               "credit_adjustment_ids": [credit["id"] for credit, _, _ in applied_credit_rows],
+               "status": "paid" if amount == 0 else "pending",
+               "paid_via": "commission_credit" if amount == 0 else None,
+               "paid_at": issue_dt.isoformat() if amount == 0 else None,
+               "issue_date": issue_dt.isoformat(), "issue_label": _fmt(issue_dt),
                "payment_link": invoice_payment_link(iid), "payment_reference": iid,
                "payment_reference_normalized": iid.casefold(),
-               "due_date": due_dt.isoformat(), "due_label": _fmt(due_dt), "paid_at": None,
+               "due_date": due_dt.isoformat(), "due_label": _fmt(due_dt),
                **issuer, "created_at": now_iso()}
         await db.invoices.insert_one(_encrypt_sensitive_fields(inv))
         await db.orders.update_many({"id": {"$in": [o["id"] for o in orders]}}, {"$set": {"invoice_id": iid}})
+        for order in orders:
+            await _record_commission_accrual(order, iid, period_str, moneylib.order_fee(order))
+        for credit, credit_amount, remaining_credit in applied_credit_rows:
+            await ledger.update_one({"id": credit["id"], "settlement_status": "pending"}, {"$set": {
+                "remaining_amount": moneylib.as_json(remaining_credit),
+                "settlement_status": "applied" if remaining_credit <= 0 else "pending",
+                "applied_invoice_id": iid,
+                "applied_amount": moneylib.as_json(credit_amount),
+                "updated_at": now_iso(),
+            }})
         await notify(
             sup["id"],
             f"გამოიწერა საკომისიოს ახალი ინვოისი №{inv['invoice_no']} ({label}) — "
@@ -10986,6 +11137,9 @@ async def ensure_startup_indexes():
         ("bank_payments.id", db.bank_payments.create_index("id", unique=True)),
         ("bank_payments.pay_id", db.bank_payments.create_index("pay_id", unique=True)),
         ("product_returns.id", db.product_returns.create_index("id", unique=True)),
+        ("commission_ledger.id", db.commission_ledger.create_index("id", unique=True)),
+        ("commission_ledger.pending", db.commission_ledger.create_index(
+            [("supplier_id", 1), ("settlement_status", 1), ("available_period", 1)])),
         ("product_returns.supplier_status", db.product_returns.create_index([("supplier_id", 1), ("status", 1), ("created_at", -1)])),
         ("product_returns.store_history", db.product_returns.create_index([("retailer_id", 1), ("created_at", -1)])),
         ("product_returns.order_line", db.product_returns.create_index([("order_id", 1), ("product_id", 1), ("status", 1)])),

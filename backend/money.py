@@ -64,14 +64,45 @@ def as_json(value: Optional[Decimal]):
     return None if value is None else float(q(value))
 
 
-def order_fee(order: dict) -> Decimal:
-    """Single commission formula: recorded commission_amount, else recorded service_fee, else the default rate."""
+def order_returned_total(order: dict) -> Decimal:
+    total = q(order.get("total"))
+    returned = total_sum(
+        dec(item.get("returned_quantity", 0) or 0) * dec(item.get("unit_price", 0) or 0)
+        for item in order.get("items", [])
+        if isinstance(item, dict)
+    )
+    return min(total, returned)
+
+
+def order_net_total(order: dict) -> Decimal:
+    """Order value after approved line returns; cancelled orders contribute no turnover."""
+    if order.get("status") == "Cancelled":
+        return ZERO
+    return max(ZERO, q(q(order.get("total")) - order_returned_total(order)))
+
+
+def order_gross_fee(order: dict) -> Decimal:
+    """Commission before returns, using the rate/amount frozen on the order."""
     if order.get("source") == "external" or order.get("external_order"):
         return ZERO
     for field in ("commission_amount", "service_fee"):
         if order.get(field) is not None:
             return q(order[field])
     return percent_of(order.get("total"), DEFAULT_COMMISSION_RATE)
+
+
+def order_fee(order: dict) -> Decimal:
+    """Commission on retained goods, pro-rated from the commission frozen on the order."""
+    if order.get("status") == "Cancelled" or order.get("commission_status") == "Cancelled":
+        return ZERO
+    total = q(order.get("total"))
+    net_total = order_net_total(order)
+    if total <= ZERO or net_total <= ZERO:
+        return ZERO
+    gross_fee = order_gross_fee(order)
+    if net_total == total:
+        return gross_fee
+    return q(gross_fee * net_total / total)
 
 
 def to_platform_day(iso_value) -> Optional[str]:

@@ -20,6 +20,7 @@ def returns_client(monkeypatch):
             "id": "order-1", "order_no": "ORD-1", "retailer_id": "store-1", "retailer_name": "Store",
             "supplier_id": "supplier-1", "supplier_name": "Distro", "warehouse_id": "warehouse-1",
             "branch_id": "branch-1", "status": "Delivered", "external_order": False,
+            "total": 50, "service_fee": 2.5, "commission_status": "Active",
             "items": [{"product_id": "product-1", "name": "Tea", "quantity": 5, "unit_price": 10}],
         })
         await database.warehouse_inventory.insert_one({
@@ -65,6 +66,122 @@ def test_return_request_pending_and_supplier_approval_updates_stock_once(returns
     repeated = client.patch(f"/api/supplier/returns/{return_id}/decision", json={"decision": "APPROVED"})
     assert repeated.status_code == 409
     assert asyncio.run(database.warehouse_inventory.find_one({"product_id": "product-1"}))["stock"] == 9
+
+
+def test_post_invoice_returns_create_partial_and_full_commission_credits(returns_client):
+    client, database = returns_client
+    asyncio.run(database.orders.update_one(
+        {"id": "order-1"}, {"$set": {"invoice_id": "invoice-1"}},
+    ))
+
+    partial = client.post("/api/returns", json={
+        "order_id": "order-1", "product_id": "product-1", "quantity": 2,
+        "reason": "damaged", "comment": "Two units returned.",
+    })
+    assert partial.status_code == 201
+    server.app.dependency_overrides[server.get_current_user] = lambda: SUPPLIER
+    partial_result = client.patch(f"/api/supplier/returns/{partial.json()['id']}/decision", json={
+        "decision": "APPROVED", "comment": "Accepted.",
+    })
+    assert partial_result.status_code == 200, partial_result.text
+
+    partial_credit = asyncio.run(database.commission_ledger.find_one({"source_id": f"return:{partial.json()['id']}"}))
+    assert partial_credit["status"] == "Refunded"
+    assert partial_credit["settlement_status"] == "pending"
+    assert partial_credit["amount"] == 1.0
+    assert asyncio.run(database.orders.find_one({"id": "order-1"}))["commission_status"] == "Active"
+
+    server.app.dependency_overrides[server.get_current_user] = lambda: RETAILER
+    full = client.post("/api/returns", json={
+        "order_id": "order-1", "product_id": "product-1", "quantity": 3,
+        "reason": "wrong_item", "comment": "Remaining units returned.",
+    })
+    assert full.status_code == 201
+    server.app.dependency_overrides[server.get_current_user] = lambda: SUPPLIER
+    full_result = client.patch(f"/api/supplier/returns/{full.json()['id']}/decision", json={
+        "decision": "APPROVED", "comment": "Accepted.",
+    })
+    assert full_result.status_code == 200, full_result.text
+
+    rows = asyncio.run(database.commission_ledger.find({"order_id": "order-1"}).to_list(None))
+    assert sum(row["amount"] for row in rows) == 2.5
+    assert asyncio.run(database.orders.find_one({"id": "order-1"}))["commission_status"] == "Refunded"
+
+
+def test_post_invoice_cancellation_creates_one_commission_credit(returns_client):
+    client, database = returns_client
+    asyncio.run(database.orders.update_one(
+        {"id": "order-1"}, {"$set": {"invoice_id": "invoice-1"}},
+    ))
+    server.app.dependency_overrides[server.get_current_user] = lambda: SUPPLIER
+
+    first = client.put("/api/orders/order-1/status", json={"status": "Cancelled"})
+    second = client.put("/api/orders/order-1/status", json={"status": "Cancelled"})
+
+    assert first.status_code == second.status_code == 200
+    order = asyncio.run(database.orders.find_one({"id": "order-1"}))
+    credit = asyncio.run(database.commission_ledger.find_one({"id": "credit:cancellation:order-1"}))
+    assert order["commission_status"] == "Cancelled"
+    assert credit["status"] == "Cancelled"
+    assert credit["settlement_status"] == "pending"
+    assert credit["amount"] == 2.5
+    assert asyncio.run(database.commission_ledger.count_documents({"type": "credit"})) == 1
+
+
+@pytest.mark.parametrize(("credit_amount", "expected_amount", "expected_remaining"), [
+    (2.5, 7.5, 0),
+    (15, 0, 5),
+])
+def test_pending_return_credit_is_applied_to_next_commission_invoice(
+    returns_client, monkeypatch, credit_amount, expected_amount, expected_remaining,
+):
+    _client, database = returns_client
+    issued_return = "return-issued-1"
+    asyncio.run(database.orders.update_one(
+        {"id": "order-1"}, {"$set": {"invoice_id": "invoice-1"}},
+    ))
+    asyncio.run(database.commission_ledger.insert_one({
+        "id": f"credit:return:{issued_return}", "type": "credit", "status": "Refunded",
+        "settlement_status": "pending", "supplier_id": "supplier-1", "order_id": "order-1",
+        "order_no": "ORD-1", "source_id": f"return:{issued_return}", "reason": "Approved return",
+        "amount": credit_amount, "remaining_amount": credit_amount, "currency": "GEL",
+        "available_period": "2026-10", "created_at": "2026-10-25T10:00:00+00:00",
+    }))
+    asyncio.run(database.users.insert_one({
+        "id": "supplier-1", "role": "supplier", "business_name": "Distro",
+        "identification_number": "123456789", "email": "",
+    }))
+    asyncio.run(database.orders.insert_one({
+        "id": "order-2", "order_no": "ORD-2", "supplier_id": "supplier-1",
+        "supplier_name": "Distro", "retailer_name": "Store", "status": "Delivered",
+        "external_order": False, "total": 200, "service_fee": 10,
+        "delivered_at": "2026-10-26T10:00:00+00:00", "items": [],
+    }))
+
+    async def fixed_settings():
+        return {key: value for key, value in server.ISSUER_DEFAULTS.items()}
+
+    async def no_op(*_args, **_kwargs):
+        return None
+
+    monkeypatch.setattr(server, "get_settings", fixed_settings)
+    monkeypatch.setattr(server, "notify", no_op)
+    invoices = asyncio.run(server.do_generate_invoices("2026-10"))
+
+    assert len(invoices) == 1
+    invoice = asyncio.run(database.invoices.find_one({"period": "2026-10"}))
+    credit_line = next(line for line in invoice["line_items"] if line.get("type") == "credit_note")
+    assert invoice["gross_commission"] == 10
+    assert invoice["credit_adjustment"] == min(10, credit_amount)
+    assert invoice["amount"] == expected_amount
+    assert credit_line["commission"] == -invoice["credit_adjustment"]
+    credit = asyncio.run(database.commission_ledger.find_one({"id": f"credit:return:{issued_return}"}))
+    assert credit["settlement_status"] == ("applied" if expected_remaining == 0 else "pending")
+    assert credit["remaining_amount"] == expected_remaining
+    if expected_amount == 0:
+        assert invoice["status"] == "paid"
+        assert invoice["paid_via"] == "commission_credit"
+        assert invoice["paid_at"]
 
 
 def test_return_quantity_is_limited_and_rejection_does_not_change_stock(returns_client):
