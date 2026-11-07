@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
 import { useTheme } from "@/context/ThemeContext";
@@ -22,6 +22,8 @@ import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel,
   DropdownMenuSeparator, DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+
+const AddressSelector = lazy(() => import("@/components/AddressSelector"));
 
 const NAV = {
   retailer: [
@@ -329,7 +331,7 @@ export function AppLayout({ children }) {
   const { t } = useI18n();
   const pwa = usePwaInstall();
   const { count = 0 } = useCart() || {};
-  const { branches, activeBranchId, selectBranch } = useStoreBranch();
+  const { activeBranch } = useStoreBranch();
   const { warehouses, activeWarehouseId, selectWarehouse } = useSupplierWarehouse();
   const location = useLocation();
   const navigate = useNavigate();
@@ -466,17 +468,7 @@ export function AppLayout({ children }) {
                 ))}
               </select>
             )}
-            {isStoreOwner && branches.length > 0 && (
-              <select
-                aria-label={t("branch.switch")}
-                data-testid="store-branch-switcher"
-                value={activeBranchId}
-                onChange={(event) => selectBranch(event.target.value)}
-                className="h-9 max-w-40 rounded-md border border-border bg-background px-2 text-xs font-medium text-foreground sm:max-w-52 sm:text-sm"
-              >
-                {branches.filter((branch) => branch.active !== false).map((branch) => <option key={branch.id} value={branch.id}>{branch.name}</option>)}
-              </select>
-            )}
+            {user.role === "retailer" && activeBranch && <Suspense fallback={null}><AddressSelector canManage={isStoreOwner} /></Suspense>}
             <span className="hidden rounded-full border border-primary/30 bg-primary/10 px-3 py-1 font-mono text-[11px] font-semibold uppercase tracking-wider text-primary sm:inline-flex" data-testid="role-badge">
               {user.role === "retailer" ? (user.roleName || t(`roles.${user.store_access_role || "global_admin"}`)) : roleLabel}
             </span>

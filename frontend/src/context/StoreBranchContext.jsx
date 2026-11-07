@@ -14,7 +14,7 @@ export function StoreBranchProvider({ children }) {
     ? user.assigned_branch_id || ""
     : activeBranchId;
 
-  const refreshBranches = useCallback(async () => {
+  const refreshBranches = useCallback(async (preferredBranchId = "") => {
     if (user?.role !== "retailer") {
       setBranches([]);
       return [];
@@ -23,9 +23,11 @@ export function StoreBranchProvider({ children }) {
     setBranches(data);
     const saved = localStorage.getItem(ACTIVE_BRANCH_KEY);
     const activeBranches = data.filter((branch) => branch.active !== false);
-    const nextId = activeBranches.some((branch) => branch.id === saved)
-      ? saved
-      : activeBranches.find((branch) => branch.is_default)?.id || activeBranches[0]?.id || "";
+    const nextId = activeBranches.some((branch) => branch.id === preferredBranchId)
+      ? preferredBranchId
+      : activeBranches.some((branch) => branch.id === saved)
+        ? saved
+        : activeBranches.find((branch) => branch.is_default)?.id || activeBranches[0]?.id || "";
     setActiveBranchId(nextId);
     if (nextId) localStorage.setItem(ACTIVE_BRANCH_KEY, nextId);
     return data;

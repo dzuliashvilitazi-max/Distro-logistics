@@ -2,6 +2,7 @@ import { useState } from "react";
 import { api, formatApiError } from "@/lib/api";
 import { useStoreBranch } from "@/context/StoreBranchContext";
 import { useI18n } from "@/context/I18nContext";
+import AddressMapPicker from "@/components/AddressMapPicker";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -9,7 +10,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { MapPin, Pencil, Plus, Store } from "lucide-react";
 import { toast } from "sonner";
 
-const EMPTY = { name: "", address: "", phone: "", active: true };
+const EMPTY = { name: "", address: "", phone: "", city: "", lat: null, lng: null, active: true };
 
 export default function StoreBranches() {
   const { t } = useI18n();
@@ -22,7 +23,12 @@ export default function StoreBranches() {
   const openNew = () => { setEditing(null); setForm(EMPTY); setBranchDialog(true); };
   const openEdit = (branch) => {
     setEditing(branch);
-    setForm({ name: branch.name, address: branch.address || "", phone: branch.phone || "", active: branch.active !== false });
+    setForm({
+      name: branch.name, address: branch.address || "", phone: branch.phone || "",
+      city: branch.city || "", lat: branch.lat ?? branch.route_coordinates?.lat ?? null,
+      lng: branch.lng ?? branch.route_coordinates?.lng ?? branch.route_coordinates?.lon ?? null,
+      active: branch.active !== false,
+    });
     setBranchDialog(true);
   };
 
@@ -78,10 +84,10 @@ export default function StoreBranches() {
           <DialogHeader><DialogTitle>{editing ? t("branch.edit") : t("branch.add")}</DialogTitle><DialogDescription>{t("branch.subtitle")}</DialogDescription></DialogHeader>
           <form className="space-y-4" onSubmit={save}>
             <div><Label htmlFor="branch-name">{t("branch.name")}</Label><Input id="branch-name" className="mt-1" required maxLength={120} value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} /></div>
-            <div><Label htmlFor="branch-address">{t("branch.address")}</Label><Input id="branch-address" className="mt-1" required maxLength={500} value={form.address} onChange={(event) => setForm({ ...form, address: event.target.value })} /></div>
+            <AddressMapPicker value={form} onChange={(location) => setForm((current) => ({ ...current, ...location }))} />
             <div><Label htmlFor="branch-phone">{t("branch.phone")}</Label><Input id="branch-phone" className="mt-1" maxLength={40} value={form.phone} onChange={(event) => setForm({ ...form, phone: event.target.value })} /></div>
             {editing && !editing.is_default && <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={form.active} onChange={(event) => setForm({ ...form, active: event.target.checked })} />{t("branch.active")}</label>}
-            <DialogFooter><Button type="submit" disabled={saving}>{saving ? t("common.saving") : t("common.save")}</Button></DialogFooter>
+            <DialogFooter><Button type="submit" disabled={saving || !Number.isFinite(form.lat) || !Number.isFinite(form.lng) || !form.address}>{saving ? t("common.saving") : t("common.save")}</Button></DialogFooter>
           </form>
         </DialogContent>
       </Dialog>

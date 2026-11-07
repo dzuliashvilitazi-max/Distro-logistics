@@ -95,6 +95,8 @@ class Collection:
             if not _matches(row, query):
                 continue
             row.update(copy.deepcopy(update.get("$set", {})))
+            for key in update.get("$unset", {}):
+                row.pop(key, None)
             return type("Result", (), {"matched_count": 1, "modified_count": 1})()
         if upsert:
             row = {key: value for key, value in query.items() if not key.startswith("$")}
@@ -121,6 +123,7 @@ def _install(monkeypatch, user):
     branch = {
         "id": "branch-1", "retailer_id": retailer_id, "name": "Main",
         "address": "Tbilisi", "active": True, "is_default": True,
+        "lat": 41.71, "lng": 44.81, "route_coordinates": {"lat": 41.71, "lon": 44.81},
     }
     orders = Collection([{
         "id": "purchase-1", "order_no": "ORD-1", "retailer_id": retailer_id,
@@ -159,21 +162,74 @@ def test_store_branch_create_edit_and_protect_default(monkeypatch):
     try:
         response = client.post("/api/store/branches", json={
             "name": "Saburtalo", "address": "Tbilisi, Saburtalo", "phone": "+995555000001",
+            "city": "Tbilisi", "lat": 41.72, "lng": 44.75,
         })
         assert response.status_code == 200
         branch = response.json()
         assert branch["is_default"] is False
+        assert branch["route_coordinates"] == {"lat": 41.72, "lon": 44.75}
 
         response = client.put(f"/api/store/branches/{branch['id']}", json={
-            "name": "Saburtalo 2", "address": "Updated address", "phone": "", "active": True,
+            "name": "Saburtalo 2", "address": "Updated address", "phone": "", "city": "Tbilisi",
+            "lat": 41.73, "lng": 44.76, "active": True,
         })
         assert response.status_code == 200
         assert response.json()["name"] == "Saburtalo 2"
+        assert response.json()["route_coordinates"] == {"lat": 41.73, "lon": 44.76}
 
         response = client.put("/api/store/branches/branch-1", json={
             "name": "Main", "address": "Tbilisi", "phone": "", "active": False,
         })
         assert response.status_code == 409
+    finally:
+        server.app.dependency_overrides.pop(server.get_current_user, None)
+
+
+def test_synthetic_default_branch_can_save_its_first_map_pin(monkeypatch):
+    client, db = _install(monkeypatch, {"id": "store-1", "role": "retailer", "business_name": "Store"})
+    db.store_branches.rows.clear()
+    try:
+        response = client.put("/api/store/branches/store-1", json={
+            "name": "Main", "address": "Leghoberidze Street, 9", "phone": "+995555000001",
+            "city": "Tbilisi", "lat": 41.71, "lng": 44.81, "active": True,
+        })
+        assert response.status_code == 200, response.text
+        assert response.json()["route_coordinates"] == {"lat": 41.71, "lon": 44.81}
+        assert db.store_branches.rows[0]["is_default"] is True
+        assert db.users.rows[0]["lat"] == 41.71
+    finally:
+        server.app.dependency_overrides.pop(server.get_current_user, None)
+
+
+def test_address_search_and_reverse_geocoding_return_pin_fields(monkeypatch):
+    user = {"id": "store-1", "role": "retailer", "store_access_role": "global_admin"}
+
+    async def lookup(path, params):
+        if path == "search":
+            return [{
+                "lat": "41.71", "lon": "44.81", "display_name": "Leghoberidze Street, 9, Tbilisi",
+                "address": {"road": "Leghoberidze Street", "house_number": "9", "city": "Tbilisi"},
+            }]
+        return {
+            "lat": str(params["lat"]), "lon": str(params["lon"]),
+            "address": {"road": "Leghoberidze Street", "house_number": "9", "city": "Tbilisi"},
+        }
+
+    monkeypatch.setattr(server, "_nominatim_request", lookup)
+    server.app.dependency_overrides[server.get_current_user] = lambda: user
+    client = TestClient(server.app)
+    try:
+        search = client.get("/api/addresses/search", params={"query": "Leghoberidze 9"})
+        assert search.status_code == 200
+        assert search.json()[0]["address"] == "Leghoberidze Street, 9"
+        assert search.json()[0]["lat"] == 41.71
+
+        reverse = client.get("/api/addresses/reverse", params={"lat": 41.71, "lng": 44.81})
+        assert reverse.status_code == 200
+        assert reverse.json() == {
+            "address": "Leghoberidze Street, 9", "city": "Tbilisi",
+            "label": "Leghoberidze Street, 9, Tbilisi", "lat": 41.71, "lng": 44.81,
+        }
     finally:
         server.app.dependency_overrides.pop(server.get_current_user, None)
 
@@ -191,25 +247,25 @@ def test_profile_contact_update_syncs_default_branch(monkeypatch):
         default_branch = next(branch for branch in db.store_branches.rows if branch["is_default"])
         assert default_branch["address"] == "Updated delivery address"
         assert default_branch["phone"] == "+995555123456"
+        assert "route_coordinates" not in default_branch
     finally:
         server.app.dependency_overrides.pop(server.get_current_user, None)
 
 
-def test_delivery_geocoding_skips_unmatched_stop_and_continues(monkeypatch):
+def test_delivery_routing_uses_saved_coordinates_and_skips_missing_pins(monkeypatch):
     db = type("MemoryDB", (), {
         "orders": Collection([{"id": "order-found", "supplier_id": "supplier-1"}]),
     })()
 
-    async def geocode(address):
-        if "unmatched" in address:
-            raise server.HTTPException(422, "Address not found")
-        return {"lat": 41.7, "lon": 44.8}
+    async def text_geocoding_must_not_run(_address):
+        raise AssertionError("Route planning must never geocode delivery text.")
 
     monkeypatch.setattr(server, "db", db)
-    monkeypatch.setattr(server, "_geocode_address", geocode)
+    monkeypatch.setattr(server, "_geocode_address", text_geocoding_must_not_run)
     orders = [
         {"id": "order-missing", "order_no": "ORD-MISSING", "delivery_address": "unmatched address"},
-        {"id": "order-found", "order_no": "ORD-FOUND", "delivery_address": "Tbilisi, Rustaveli"},
+        {"id": "order-found", "order_no": "ORD-FOUND", "delivery_address": "Wrong text address",
+         "route_address": "A different previous address", "route_coordinates": {"lat": 41.7, "lon": 44.8}},
     ]
 
     stops, unrouted_stops = asyncio.run(
@@ -218,8 +274,9 @@ def test_delivery_geocoding_skips_unmatched_stop_and_continues(monkeypatch):
 
     assert [stop["order_id"] for stop in stops] == ["order-found"]
     assert [stop["order_id"] for stop in unrouted_stops] == ["order-missing"]
-    assert unrouted_stops[0]["reason"] == "address_not_found"
-    assert db.orders.rows[0]["route_coordinates"] == {"lat": 41.7, "lon": 44.8}
+    assert unrouted_stops[0]["reason"] == "coordinates_missing"
+    assert stops[0]["lat"] == 41.7 and stops[0]["lon"] == 44.8
+    assert db.orders.rows[0].get("route_coordinates") is None
 
 
 def test_pos_sales_sync_idempotently_calculates_branch_profit(monkeypatch):

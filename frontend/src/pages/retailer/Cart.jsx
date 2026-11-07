@@ -22,7 +22,7 @@ export default function Cart() {
   const { activeBranch } = useStoreBranch();
   const { t } = useI18n();
   const navigate = useNavigate();
-  const [address, setAddress] = useState(user.address || "");
+  const address = activeBranch?.address || user.address || "";
   const [notes, setNotes] = useState("");
   const [deliveryWindow, setDeliveryWindow] = useState("9am - 12pm");
   const [payment, setPayment] = useState(user.card_verified ? "online" : "cash");
@@ -40,16 +40,15 @@ export default function Cart() {
       if (!list.length) setPayment((p) => (p === "online" ? "cash" : p));
     }).catch(() => {});
   }, []);
-  useEffect(() => {
-    if (activeBranch?.address) setAddress(activeBranch.address);
-  }, [activeBranch?.id, activeBranch?.address]);
-
   const lines = useMemo(() => items.map((i) => ({ ...i, unit: tierPrice(i, i.quantity), subtotal: tierPrice(i, i.quantity) * i.quantity })), [items]);
   const total = lines.reduce((s, l) => s + l.subtotal, 0);
   const fee = settings ? (settings.fee_type === "fixed" ? Number(settings.fee_value) : total * Number(settings.fee_value) / 100) : 0;
 
   const checkout = async () => {
     if (!address.trim()) { toast.error(t("checkout.enterAddress")); return; }
+    const locationLat = activeBranch?.lat ?? activeBranch?.route_coordinates?.lat;
+    const locationLng = activeBranch?.lng ?? activeBranch?.route_coordinates?.lng ?? activeBranch?.route_coordinates?.lon;
+    if (!Number.isFinite(locationLat) || !Number.isFinite(locationLng)) { toast.error(t("checkout.pinAddress")); return; }
     for (const l of lines) if (l.quantity < l.moq) { toast.error(`${l.name} — ${t("checkout.belowMoq")} (${l.moq})`); return; }
     setPlacing(true);
     try {
@@ -161,7 +160,9 @@ export default function Cart() {
           <div className="sticky top-20 space-y-4 rounded-xl border border-border bg-card p-5">
             <h3 className="text-lg font-semibold">{t("checkout.deliveryDetails")}</h3>
             {activeBranch && <p className="text-xs text-muted-foreground">{t("branch.current")}: <span className="font-semibold text-foreground">{activeBranch.name}</span></p>}
-            <div><Label htmlFor="addr">{t("checkout.deliveryAddress")}</Label><Textarea id="addr" value={address} onChange={(e) => setAddress(e.target.value)} className="mt-1.5" rows={2} data-testid="checkout-address" placeholder={t("checkout.addressPlaceholder")} /></div>
+            <div><Label htmlFor="addr">{t("checkout.deliveryAddress")}</Label><Textarea id="addr" value={address} readOnly className="mt-1.5" rows={2} data-testid="checkout-address" placeholder={t("checkout.addressPlaceholder")} />
+              {!Number.isFinite(activeBranch?.lat ?? activeBranch?.route_coordinates?.lat) && <p className="mt-1 text-xs text-amber-600" role="status">{t("checkout.pinAddress")}</p>}
+            </div>
             <div><Label htmlFor="window">{t("checkout.deliveryWindow")}</Label>
               <select id="window" value={deliveryWindow} onChange={(e) => setDeliveryWindow(e.target.value)} data-testid="checkout-window" className="mt-1.5 h-10 w-full rounded-md border border-input bg-background px-3 text-sm">
                 {["9am - 12pm", "12pm - 3pm", "3pm - 6pm", "After hours"].map((w) => <option key={w}>{w}</option>)}

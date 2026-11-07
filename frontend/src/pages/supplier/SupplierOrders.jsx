@@ -4,6 +4,7 @@ import { api, formatApiError } from "@/lib/api";
 import { useI18n } from "@/context/I18nContext";
 import { StatusBadge } from "@/components/StatusBadge";
 import { PaymentBadge } from "@/pages/admin/AdminOrders";
+import AddressMapPicker from "@/components/AddressMapPicker";
 import { Check, X, Truck, Package, ClipboardList, FileDown, Loader2, Plus, Wallet, UserRound } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -43,7 +44,7 @@ export default function SupplierOrders() {
   const [externalOrder, setExternalOrder] = useState(true);
   const [manualOrder, setManualOrder] = useState({
     customer_name: "", customer_phone: "", delivery_address: "", item_name: "",
-    quantity: "1", unit_price: "", notes: "", delivery_window: "",
+    city: "", lat: null, lng: null, quantity: "1", unit_price: "", notes: "", delivery_window: "",
   });
   const [searchParams] = useSearchParams();
   const requestedOrderId = searchParams.get("order");
@@ -129,11 +130,18 @@ export default function SupplierOrders() {
         customer_name: store.name || "",
         customer_phone: store.phone || "",
         delivery_address: store.address || "",
+        city: store.city || "",
+        lat: store.route_coordinates?.lat ?? null,
+        lng: store.route_coordinates?.lng ?? store.route_coordinates?.lon ?? null,
       }));
     }
   };
   const createManualOrder = async (event) => {
     event.preventDefault();
+    if (!Number.isFinite(manualOrder.lat) || !Number.isFinite(manualOrder.lng) || !manualOrder.delivery_address) {
+      toast.error(tr("checkout.pinAddress"));
+      return;
+    }
     setCreatingManualOrder(true);
     try {
       await api.post("/external-orders", {
@@ -144,7 +152,7 @@ export default function SupplierOrders() {
       });
       setManualOrder({
         customer_name: "", customer_phone: "", delivery_address: "", item_name: "",
-        quantity: "1", unit_price: "", notes: "", delivery_window: "",
+        city: "", lat: null, lng: null, quantity: "1", unit_price: "", notes: "", delivery_window: "",
       });
       setSelectedStoreId("");
       setShowManualOrder(false);
@@ -204,9 +212,7 @@ export default function SupplierOrders() {
             <label className="space-y-1 text-xs text-muted-foreground">{tr("orders.customerPhone")}
               <Input type="tel" maxLength={40} value={manualOrder.customer_phone} onChange={(event) => setManualOrder((current) => ({ ...current, customer_phone: event.target.value }))} />
             </label>
-            <label className="space-y-1 text-xs text-muted-foreground">{tr("orders.deliveryAddress")}
-              <Input required minLength={3} maxLength={500} value={manualOrder.delivery_address} onChange={(event) => setManualOrder((current) => ({ ...current, delivery_address: event.target.value }))} />
-            </label>
+            <div className="sm:col-span-2"><AddressMapPicker value={manualOrder} onChange={(location) => setManualOrder((current) => ({ ...current, ...location }))} /></div>
             <label className="space-y-1 text-xs text-muted-foreground">{tr("orders.deliveryWindow")}
               <Input maxLength={120} value={manualOrder.delivery_window} onChange={(event) => setManualOrder((current) => ({ ...current, delivery_window: event.target.value }))} />
             </label>

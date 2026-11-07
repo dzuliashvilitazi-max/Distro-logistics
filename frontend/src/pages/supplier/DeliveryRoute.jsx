@@ -485,7 +485,7 @@ export default function DeliveryRoute() {
               </p>
               <ul className="mt-2 space-y-1 text-xs text-muted-foreground">
                 {route.unrouted_stops.map((stop) => (
-                  <li key={stop.order_id}>{stop.order_no} · {stop.address || t("route.addressUnavailable")}</li>
+                  <li key={stop.order_id}>{stop.order_no} · {stop.address || t("route.addressUnavailable")} · {t("route.coordinatesMissing")}</li>
                 ))}
               </ul>
             </section>

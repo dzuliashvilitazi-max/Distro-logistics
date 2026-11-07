@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { api, formatApiError } from "@/lib/api";
 import { useI18n } from "@/context/I18nContext";
+import AddressMapPicker from "@/components/AddressMapPicker";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { isGoogleMapsConfigured, loadGoogleMapsApi, optimizeTrafficRoute } from "@/lib/googleMaps";
@@ -25,7 +26,7 @@ const WORK_DAYS = [
 const DEFAULT_WORKING_DAYS = [1, 2, 3, 4, 5];
 const EMPTY_DRIVER = { name: "", phone: "", vehicle_plate: "", personal_id: "", transport_type: "", working_days: DEFAULT_WORKING_DAYS, active: true };
 const EMPTY_EXTERNAL_ORDER = {
-  customer_name: "", customer_phone: "", delivery_address: "", item_name: "",
+  customer_name: "", customer_phone: "", delivery_address: "", city: "", lat: null, lng: null, item_name: "",
   quantity: "1", unit_price: "", notes: "", delivery_window: "",
 };
 const fallbackTranslate = (key) => key;
@@ -205,6 +206,10 @@ export default function SupplierDrivers() {
 
   const createCalendarExternalOrder = async (event) => {
     event.preventDefault();
+    if (!Number.isFinite(manualOrder.lat) || !Number.isFinite(manualOrder.lng) || !manualOrder.delivery_address) {
+      toast.error(t("checkout.pinAddress"));
+      return;
+    }
     setCreatingExternalOrder(true);
     try {
       const { data } = await api.post("/external-orders", {
@@ -560,11 +565,11 @@ export default function SupplierDrivers() {
                   <div className="grid gap-2 sm:grid-cols-2">
                     <Input required maxLength={160} placeholder={t("orders.customerName")} aria-label={t("orders.customerName")} value={manualOrder.customer_name} onChange={(event) => setManualOrder((current) => ({ ...current, customer_name: event.target.value }))} />
                     <Input type="tel" maxLength={40} placeholder={t("orders.customerPhone")} aria-label={t("orders.customerPhone")} value={manualOrder.customer_phone} onChange={(event) => setManualOrder((current) => ({ ...current, customer_phone: event.target.value }))} />
-                    <Input required minLength={3} maxLength={500} placeholder={t("orders.deliveryAddress")} aria-label={t("orders.deliveryAddress")} value={manualOrder.delivery_address} onChange={(event) => setManualOrder((current) => ({ ...current, delivery_address: event.target.value }))} />
                     <Input required maxLength={200} placeholder={t("orders.itemName")} aria-label={t("orders.itemName")} value={manualOrder.item_name} onChange={(event) => setManualOrder((current) => ({ ...current, item_name: event.target.value }))} />
                     <Input required type="number" min="1" max="100000" step="1" placeholder={t("orders.quantity")} aria-label={t("orders.quantity")} value={manualOrder.quantity} onChange={(event) => setManualOrder((current) => ({ ...current, quantity: event.target.value }))} />
                     <Input required type="number" min="0" step="0.01" placeholder={t("orders.unitPrice")} aria-label={t("orders.unitPrice")} value={manualOrder.unit_price} onChange={(event) => setManualOrder((current) => ({ ...current, unit_price: event.target.value }))} />
                   </div>
+                  <AddressMapPicker value={manualOrder} onChange={(location) => setManualOrder((current) => ({ ...current, ...location }))} />
                   <Button type="submit" variant="outline" className="w-full" disabled={creatingExternalOrder} data-testid="add-calendar-external-order-button">
                     <Plus className="mr-2 h-4 w-4" />{creatingExternalOrder ? t("drivers.addingExternalStop") : t("drivers.addExternalStop")}
                   </Button>

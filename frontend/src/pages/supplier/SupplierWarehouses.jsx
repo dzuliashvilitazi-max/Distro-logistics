@@ -3,13 +3,14 @@ import { api, formatApiError } from "@/lib/api";
 import { useI18n } from "@/context/I18nContext";
 import { useSupplierWarehouse } from "@/context/SupplierWarehouseContext";
 import { CityMultiSelect } from "@/components/CityMultiSelect";
+import AddressMapPicker from "@/components/AddressMapPicker";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Boxes, MapPin, Pencil, Plus, RefreshCw, Trash2, Warehouse as WarehouseIcon } from "lucide-react";
 import { toast } from "sonner";
 
-const EMPTY_WAREHOUSE = { name: "", city: "", servedCities: [], address: "", active: true };
+const EMPTY_WAREHOUSE = { name: "", city: "", servedCities: [], address: "", lat: null, lng: null, active: true };
 const EMPTY_TRANSFER = { from_warehouse_id: "", to_warehouse_id: "", product_id: "", quantity: "" };
 const asList = (value, keys = []) => {
   if (Array.isArray(value)) return value;
@@ -88,6 +89,8 @@ export default function SupplierWarehouses() {
       city: warehouse.city || "",
       servedCities: warehouse.servedCities?.length ? warehouse.servedCities : (warehouse.city ? [warehouse.city] : []),
       address: warehouse.address || "",
+      lat: warehouse.lat ?? warehouse.route_coordinates?.lat ?? null,
+      lng: warehouse.lng ?? warehouse.route_coordinates?.lng ?? warehouse.route_coordinates?.lon ?? null,
       active: warehouse.active !== false,
     });
   };
@@ -261,15 +264,13 @@ export default function SupplierWarehouses() {
                 allowAll={false}
               />
             </div>
-            <label className="block space-y-1 text-xs text-muted-foreground">{t("warehouse.address")}
-              <Input maxLength={500} value={form.address} onChange={(event) => setForm((current) => ({ ...current, address: event.target.value }))} />
-            </label>
+            <AddressMapPicker value={form} onChange={(location) => setForm((current) => ({ ...current, ...location }))} />
             <label className="flex items-center gap-2 text-sm">
               <input type="checkbox" checked={form.active} onChange={(event) => setForm((current) => ({ ...current, active: event.target.checked }))} className="h-4 w-4 accent-primary" />
               {t("warehouse.active")}
             </label>
             <div className="flex flex-wrap gap-2">
-              <Button type="submit" disabled={saving || form.servedCities.length === 0}>{saving ? t("common.saving") : t("common.save")}</Button>
+              <Button type="submit" disabled={saving || form.servedCities.length === 0 || !Number.isFinite(form.lat) || !Number.isFinite(form.lng) || !form.address}>{saving ? t("common.saving") : t("common.save")}</Button>
               {editingId && <Button type="button" variant="outline" onClick={startNew}>{t("common.cancel")}</Button>}
             </div>
           </form>

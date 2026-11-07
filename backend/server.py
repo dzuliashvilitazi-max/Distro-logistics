@@ -30,7 +30,7 @@ from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
 from pymongo import DeleteOne, UpdateOne
 from pymongo.errors import DuplicateKeyError
-from pydantic import BaseModel, Field, EmailStr, ValidationError, field_validator
+from pydantic import BaseModel, Field, EmailStr, ValidationError, field_validator, model_validator
 
 from seed import ensure_admin_account, purge_demo_accounts
 from delivery_routes import sequence_stops
@@ -608,8 +608,16 @@ class SupplierWarehouseIn(BaseModel):
     city: str = Field(min_length=2, max_length=100)
     servedCities: Optional[List[str]] = None
     address: str = Field(default="", max_length=500)
+    lat: Optional[float] = Field(default=None, ge=-90, le=90)
+    lng: Optional[float] = Field(default=None, ge=-180, le=180)
     active: bool = True
     is_default: bool = False
+
+    @model_validator(mode="after")
+    def validate_coordinate_pair(self):
+        if (self.lat is None) != (self.lng is None):
+            raise ValueError("Both map coordinates are required.")
+        return self
 
     @field_validator("servedCities", mode="before")
     @classmethod
@@ -828,9 +836,18 @@ class StoreBranchIn(BaseModel):
     name: str = Field(min_length=1, max_length=120)
     address: str = Field(min_length=3, max_length=500)
     phone: str = Field(default="", max_length=40)
+    city: str = Field(default="", max_length=100)
+    lat: Optional[float] = Field(default=None, ge=-90, le=90)
+    lng: Optional[float] = Field(default=None, ge=-180, le=180)
     active: bool = True
 
-    @field_validator("name", "address", "phone")
+    @model_validator(mode="after")
+    def validate_coordinate_pair(self):
+        if (self.lat is None) != (self.lng is None):
+            raise ValueError("Both map coordinates are required.")
+        return self
+
+    @field_validator("name", "address", "phone", "city")
     @classmethod
     def clean_branch_fields(cls, value: str) -> str:
         return value.strip()
@@ -908,6 +925,8 @@ class ManualExternalOrderIn(BaseModel):
     customer_name: str = Field(min_length=1, max_length=160)
     customer_phone: str = Field(default="", max_length=40)
     delivery_address: str = Field(min_length=3, max_length=500)
+    lat: Optional[float] = Field(default=None, ge=-90, le=90)
+    lng: Optional[float] = Field(default=None, ge=-180, le=180)
     item_name: str = Field(min_length=1, max_length=200)
     product_id: Optional[str] = Field(default=None, max_length=100)
     quantity: int = Field(default=1, ge=1, le=100000)
@@ -915,6 +934,12 @@ class ManualExternalOrderIn(BaseModel):
     notes: Optional[str] = Field(default="", max_length=1000)
     delivery_window: Optional[str] = Field(default="", max_length=120)
     external_order: bool
+
+    @model_validator(mode="after")
+    def validate_coordinate_pair(self):
+        if (self.lat is None) != (self.lng is None):
+            raise ValueError("Both map coordinates are required.")
+        return self
 
     @field_validator("customer_name", "delivery_address", "item_name")
     @classmethod
@@ -1811,11 +1836,14 @@ async def create_supplier_warehouse(
         raise HTTPException(409, "A warehouse is already registered for this city.")
     warehouse_id = str(uuid.uuid4())
     now = now_iso()
+    warehouse_coordinates = _saved_route_coordinates(body.model_dump())
     warehouse = {
-        "id": warehouse_id, "supplier_id": owner_id, **body.model_dump(),
+        "id": warehouse_id, "supplier_id": owner_id, **body.model_dump(exclude_none=True),
         "servedCities": body.servedCities or [body.city],
         "city_lower": body.city.casefold(), "created_at": now, "updated_at": now,
     }
+    if warehouse_coordinates:
+        warehouse["route_coordinates"] = warehouse_coordinates
     if body.is_default:
         await db.supplier_warehouses.update_many(
             {"supplier_id": owner_id}, {"$set": {"is_default": False}},
@@ -1832,6 +1860,11 @@ async def update_supplier_warehouse(
     if user.get("supplier_access_role") != "global_admin":
         raise HTTPException(403, "Only the distributor owner can manage warehouses.")
     owner_id = supplier_owner_id(user)
+    existing_warehouse = await db.supplier_warehouses.find_one(
+        {"id": warehouse_id, "supplier_id": owner_id}, {"_id": 0, "city": 1, "address": 1},
+    )
+    if not existing_warehouse:
+        raise HTTPException(404, "Warehouse not found.")
     duplicate = await db.supplier_warehouses.find_one({
         "supplier_id": owner_id, "city_lower": body.city.casefold(), "id": {"$ne": warehouse_id},
     }, {"_id": 0, "id": 1})
@@ -1841,14 +1874,28 @@ async def update_supplier_warehouse(
         await db.supplier_warehouses.update_many(
             {"supplier_id": owner_id}, {"$set": {"is_default": False}},
         )
+    updated_fields = {
+        **body.model_dump(exclude_none=True),
+        "servedCities": body.servedCities or [body.city],
+        "city_lower": body.city.casefold(),
+        "updated_at": now_iso(),
+    }
+    warehouse_coordinates = _saved_route_coordinates(body.model_dump())
+    invalidate_coordinates = not warehouse_coordinates and (
+        body.address != (existing_warehouse.get("address") or "")
+        or body.city != existing_warehouse.get("city")
+    )
+    if warehouse_coordinates:
+        updated_fields["route_coordinates"] = warehouse_coordinates
+    elif invalidate_coordinates:
+        updated_fields.pop("lat", None)
+        updated_fields.pop("lng", None)
+    warehouse_update = {"$set": updated_fields}
+    if invalidate_coordinates:
+        warehouse_update["$unset"] = {"lat": "", "lng": "", "route_coordinates": ""}
     result = await db.supplier_warehouses.update_one(
         {"id": warehouse_id, "supplier_id": owner_id},
-        {"$set": {
-            **body.model_dump(),
-            "servedCities": body.servedCities or [body.city],
-            "city_lower": body.city.casefold(),
-            "updated_at": now_iso(),
-        }},
+        warehouse_update,
     )
     if not result.matched_count:
         raise HTTPException(404, "Warehouse not found.")
@@ -2297,6 +2344,34 @@ async def _regional_warehouses_by_supplier(supplier_ids: List[str], city: str) -
         if supplier_id and supplier_id not in result and _warehouse_serves_city(warehouse, city):
             result[supplier_id] = warehouse.get("id")
     return {supplier_id: warehouse_id for supplier_id, warehouse_id in result.items() if warehouse_id}
+
+
+def _saved_route_coordinates(location: Optional[dict]) -> Optional[dict]:
+    location = location or {}
+    coordinates = location.get("route_coordinates") if isinstance(location.get("route_coordinates"), dict) else location
+    lat = coordinates.get("lat")
+    lng = coordinates.get("lng", coordinates.get("lon"))
+    if not isinstance(lat, (int, float)) or not isinstance(lng, (int, float)):
+        return None
+    if not math.isfinite(lat) or not math.isfinite(lng) or not -90 <= lat <= 90 or not -180 <= lng <= 180:
+        return None
+    return {"lat": float(lat), "lon": float(lng)}
+
+
+async def _store_branch_delivery_location(user: dict, branch_id: str) -> tuple[str, dict, Optional[str]]:
+    owner_id = store_owner_id(user)
+    branch = await db.store_branches.find_one(
+        {"id": branch_id, "retailer_id": owner_id, "active": True}, {"_id": 0},
+    )
+    if not branch and branch_id == owner_id:
+        branch = await db.users.find_one({"id": owner_id}, {"_id": 0}) or user
+    coordinates = _saved_route_coordinates(branch)
+    if not coordinates:
+        raise HTTPException(409, "Pin this delivery address on the map before placing an order.")
+    address = (branch.get("address") or user.get("address") or "").strip()
+    if not address:
+        raise HTTPException(409, "Add a street address to the selected map pin before ordering.")
+    return address, coordinates, branch.get("city") or user.get("city")
 
 
 async def _store_routing_address(user: dict, branch_id: Optional[str], delivery_address: str) -> str:
@@ -3905,6 +3980,7 @@ async def create_order(body: OrderIn, user: dict = Depends(require_store_permiss
     settings = await get_settings()
     online = body.payment_method == "online"
     branch_id = await resolve_store_branch(user, body.branch_id)
+    delivery_address, route_coordinates, store_city = await _store_branch_delivery_location(user, branch_id)
     grand_total_decimal = moneylib.total_sum(
         moneylib.dec(i.unit_price) * i.quantity for i in canonical_items
     )
@@ -3959,8 +4035,7 @@ async def create_order(body: OrderIn, user: dict = Depends(require_store_permiss
         except CardError as e:
             raise HTTPException(402, f"Payment failed: {e}")
     created = []
-    store_city = await _store_city(user, branch_id)
-    routing_address = await _store_routing_address(user, branch_id, body.delivery_address)
+    routing_address = await _store_routing_address(user, branch_id, delivery_address)
     warehouse_by_supplier = {}
     for sid in supplier_ids:
         warehouse_by_supplier[sid] = await _warehouse_for_supplier_location(
@@ -4000,7 +4075,8 @@ async def create_order(body: OrderIn, user: dict = Depends(require_store_permiss
             "items": [i.model_dump() for i in items], "total": total,
             "service_fee": fee, "fee_payer": payer, "fee_type": commission["fee_type"], "fee_value": commission["fee_value"],
             "fee_source": commission["fee_source"],
-            "status": "Pending Payment" if bank_transfer else "Pending", "delivery_address": body.delivery_address,
+            "status": "Pending Payment" if bank_transfer else "Pending", "delivery_address": delivery_address,
+            "route_coordinates": route_coordinates, "route_address": delivery_address,
             "branch_id": branch_id, "warehouse_id": warehouse_id,
             "notes": body.notes or "", "delivery_window": body.delivery_window or "",
             "payment_method": body.payment_method or "cash",
@@ -4265,8 +4341,8 @@ async def _start_bank_checkout(gateway: str, body: OrderIn, request: Request, us
         raise HTTPException(400, "Order items and delivery address are required.")
     branch_id = await resolve_store_branch(user, body.branch_id)
     owner_id = store_owner_id(user)
-    routing_address = await _store_routing_address(user, branch_id, body.delivery_address)
-    store_city = await _store_city(user, branch_id)
+    delivery_address, route_coordinates, store_city = await _store_branch_delivery_location(user, branch_id)
+    routing_address = await _store_routing_address(user, branch_id, delivery_address)
     product_ids = [item.product_id for item in body.items]
     supplier_ids = {item.supplier_id for item in body.items}
     if len(product_ids) != len(set(product_ids)):
@@ -4356,7 +4432,8 @@ async def _start_bank_checkout(gateway: str, body: OrderIn, request: Request, us
             "payment_status": "Pending", "payment_method": gateway,
             "amount_paid": 0, "payment_entries": [],
             "branch_id": branch_id, "warehouse_id": order_warehouses[supplier_id],
-            "delivery_address": body.delivery_address, "notes": body.notes or "",
+            "delivery_address": delivery_address, "route_coordinates": route_coordinates,
+            "route_address": delivery_address, "notes": body.notes or "",
             "delivery_window": body.delivery_window or "",
             "timeline": [{"status": "Pending", "at": now_iso()}],
             "created_at": now_iso(), "updated_at": now_iso(),
@@ -4683,6 +4760,9 @@ async def create_store_branch(body: StoreBranchIn, user: dict = Depends(require_
         "id": branch_id, "retailer_id": owner_id, **body.model_dump(),
         "is_default": False, "created_at": now, "updated_at": now,
     }
+    coordinates = _saved_route_coordinates(body.model_dump())
+    if coordinates:
+        branch["route_coordinates"] = coordinates
     await db.store_branches.insert_one(dict(branch))
     return branch
 
@@ -4699,15 +4779,41 @@ async def update_store_branch(
         {"id": branch_id, "retailer_id": owner_id}, {"_id": 0},
     )
     if not branch:
-        raise HTTPException(404, "Branch not found.")
+        if branch_id != owner_id:
+            raise HTTPException(404, "Branch not found.")
+        owner = await db.users.find_one({"id": owner_id}, {"_id": 0}) or user
+        branch = {
+            "id": owner_id, "retailer_id": owner_id,
+            "name": owner.get("business_name") or owner.get("name") or "Main branch",
+            "address": owner.get("address") or "", "phone": owner.get("phone") or "",
+            "city": owner.get("city") or "", "active": True, "is_default": True,
+        }
+        await db.store_branches.update_one(
+            {"id": owner_id, "retailer_id": owner_id}, {"$setOnInsert": branch}, upsert=True,
+        )
     if branch.get("is_default") and not body.active:
         raise HTTPException(409, "The default branch must remain active.")
-    updated = {**body.model_dump(), "updated_at": now_iso()}
-    await db.store_branches.update_one({"id": branch_id, "retailer_id": owner_id}, {"$set": updated})
+    updated = {**body.model_dump(exclude_none=True), "updated_at": now_iso()}
+    coordinates = _saved_route_coordinates(body.model_dump())
+    invalidate_coordinates = (
+        body.address != (branch.get("address") or "")
+        or "city" in body.model_fields_set and body.city != (branch.get("city") or "")
+    )
+    if coordinates:
+        updated["route_coordinates"] = coordinates
+    elif invalidate_coordinates:
+        updated.pop("lat", None)
+        updated.pop("lng", None)
+    branch_update = {"$set": updated}
+    if not coordinates and invalidate_coordinates:
+        branch_update["$unset"] = {"lat": "", "lng": "", "route_coordinates": ""}
+    await db.store_branches.update_one({"id": branch_id, "retailer_id": owner_id}, branch_update)
     if branch.get("is_default"):
-        await db.users.update_one({"id": owner_id}, {"$set": {
-            "address": body.address, "phone": body.phone,
-        }})
+        owner_updates = {key: updated[key] for key in ("address", "phone", "city", "lat", "lng", "route_coordinates") if key in updated}
+        user_update = {"$set": owner_updates}
+        if not coordinates and invalidate_coordinates:
+            user_update["$unset"] = {"lat": "", "lng": "", "route_coordinates": ""}
+        await db.users.update_one({"id": owner_id}, user_update)
     return {**branch, **updated}
 
 
@@ -5744,7 +5850,8 @@ async def list_supplier_stores(
         order_query["warehouse_id"] = selected_warehouse_id
     orders = await db.orders.find(
         order_query,
-        {"_id": 0, "retailer_id": 1, "retailer_name": 1, "delivery_address": 1, "customer_phone": 1, "created_at": 1},
+        {"_id": 0, "retailer_id": 1, "retailer_name": 1, "delivery_address": 1,
+         "customer_phone": 1, "route_coordinates": 1, "created_at": 1},
     ).sort("created_at", -1).to_list(2000)
     retailer_ids = list({
         order["retailer_id"] for order in orders
@@ -5770,9 +5877,12 @@ async def list_supplier_stores(
             "name": name,
             "address": address,
             "phone": (order.get("customer_phone") or retailer.get("phone") or "").strip(),
+            "route_coordinates": order.get("route_coordinates"),
         })
         if not store["phone"]:
             store["phone"] = (order.get("customer_phone") or retailer.get("phone") or "").strip()
+        if not store.get("route_coordinates") and order.get("route_coordinates"):
+            store["route_coordinates"] = order["route_coordinates"]
     return sorted(stores.values(), key=lambda store: store["name"].casefold())
 
 
@@ -5788,6 +5898,9 @@ async def create_external_order(
     routed_warehouse_id = selected_warehouse_id or await _warehouse_for_supplier_location(
         owner_id, body.delivery_address,
     )
+    route_coordinates = _saved_route_coordinates(body.model_dump())
+    if not route_coordinates:
+        raise HTTPException(409, "Pin the external delivery address on the map before saving the order.")
     order_id = str(uuid.uuid4())
     order_no = "EXT-" + order_id[:8].upper()
     item_product_id = str(uuid.uuid4())
@@ -5829,6 +5942,7 @@ async def create_external_order(
         "fee_value": 0,
         "status": "Processing",
         "delivery_address": body.delivery_address,
+        "route_coordinates": route_coordinates, "route_address": body.delivery_address,
         "customer_phone": body.customer_phone.strip(),
         "notes": body.notes or "",
         "delivery_window": body.delivery_window or "",
@@ -6158,38 +6272,101 @@ async def _geocode_address(address: str) -> dict:
             raise HTTPException(502, "Address lookup returned invalid coordinates.") from error
 
 
+async def _nominatim_request(path: str, params: dict):
+    global _last_geocode_at
+    async with _geocode_lock:
+        wait_seconds = 1.05 - (time.monotonic() - _last_geocode_at)
+        if wait_seconds > 0:
+            await asyncio.sleep(wait_seconds)
+        try:
+            async with httpx.AsyncClient(timeout=15, headers={
+                "User-Agent": "DistroLogistics/1.0", "Accept-Language": "ka,en",
+            }) as http:
+                response = await http.get(f"https://nominatim.openstreetmap.org/{path}", params=params)
+                response.raise_for_status()
+                return response.json()
+        except (httpx.HTTPError, ValueError) as error:
+            logger.exception("OpenStreetMap %s request failed", path)
+            raise HTTPException(502, "Address lookup is temporarily unavailable. Please try again.") from error
+        finally:
+            _last_geocode_at = time.monotonic()
+
+
+def _nominatim_address(result: dict) -> dict:
+    details = result.get("address") if isinstance(result.get("address"), dict) else {}
+    road = (details.get("road") or details.get("pedestrian") or details.get("residential")
+            or details.get("footway") or "").strip()
+    number = str(details.get("house_number") or "").strip()
+    street = ", ".join(part for part in (road, number) if part)
+    city = (details.get("city") or details.get("town") or details.get("village")
+            or details.get("municipality") or details.get("county") or "").strip()
+    address = street or str(result.get("name") or result.get("display_name") or "").split(",")[0].strip()
+    return {
+        "address": address,
+        "city": city,
+        "label": ", ".join(part for part in (address, city) if part)
+        or str(result.get("display_name") or ""),
+    }
+
+
+@api.get("/addresses/search")
+async def search_addresses(
+    query: str = Query(min_length=3, max_length=200),
+    user: dict = Depends(require_role("retailer", "supplier")),
+):
+    results = await _nominatim_request("search", {
+        "q": query, "format": "jsonv2", "addressdetails": 1,
+        "limit": 6, "countrycodes": "ge",
+    })
+    if not isinstance(results, list):
+        raise HTTPException(502, "Address search returned invalid results.")
+    suggestions = []
+    for result in results:
+        try:
+            coordinates = {"lat": float(result["lat"]), "lng": float(result["lon"])}
+        except (KeyError, TypeError, ValueError):
+            continue
+        suggestions.append({**_nominatim_address(result), **coordinates})
+    return suggestions
+
+
+@api.get("/addresses/reverse")
+async def reverse_geocode_address(
+    lat: float = Query(ge=-90, le=90), lng: float = Query(ge=-180, le=180),
+    user: dict = Depends(require_role("retailer", "supplier")),
+):
+    result = await _nominatim_request("reverse", {
+        "lat": lat, "lon": lng, "format": "jsonv2", "addressdetails": 1,
+    })
+    if not isinstance(result, dict) or result.get("error"):
+        raise HTTPException(422, "No street address was found for this location.")
+    return {**_nominatim_address(result), "lat": lat, "lng": lng}
+
+
 async def _geocode_delivery_stops(active_orders: List[dict], warehouse: dict, supplier_id: str) -> tuple:
     stops, unrouted_stops = [], []
     for order in active_orders:
-        address = ", ".join(
-            part.strip() for part in (
-                order.get("delivery_address"), warehouse.get("city"), "Georgia",
-            ) if part and part.strip()
-        )
-        coordinates = order.get("route_coordinates")
-        if (
-            order.get("route_address") != order.get("delivery_address", "")
-            or not isinstance(coordinates, dict)
-            or not isinstance(coordinates.get("lat"), (int, float))
-            or not isinstance(coordinates.get("lon"), (int, float))
-        ):
-            try:
-                coordinates = await _geocode_address(address)
-            except HTTPException as error:
-                if error.status_code != 422:
-                    raise
-                order_no = order.get("order_no", order.get("id", ""))
-                logger.warning("Skipping delivery stop %s: address was not found by Nominatim.", order_no)
-                unrouted_stops.append({
-                    "order_id": order["id"], "order_no": order_no,
-                    "retailer_name": order.get("retailer_name", ""),
-                    "address": order.get("delivery_address", ""),
-                    "reason": "address_not_found",
+        coordinates = _saved_route_coordinates(order)
+        if not coordinates and order.get("branch_id") and order.get("retailer_id"):
+            branch = await db.store_branches.find_one({
+                "id": order["branch_id"], "retailer_id": order["retailer_id"], "active": True,
+            }, {"_id": 0, "lat": 1, "lng": 1, "route_coordinates": 1, "address": 1})
+            coordinates = _saved_route_coordinates(branch)
+            if coordinates:
+                order["route_coordinates"] = coordinates
+                await db.orders.update_one({"id": order["id"], "supplier_id": supplier_id}, {
+                    "$set": {"route_coordinates": coordinates, "route_address": (branch.get("address") or "")}
                 })
-                continue
-            await db.orders.update_one({"id": order["id"], "supplier_id": supplier_id}, {
-                "$set": {"route_coordinates": coordinates, "route_address": order.get("delivery_address", "")}
+        if not coordinates:
+            order_no = order.get("order_no", order.get("id", ""))
+            logger.warning("Skipping delivery stop %s: saved map coordinates are missing.", order_no)
+            unrouted_stops.append({
+                "order_id": order["id"], "order_no": order_no,
+                "retailer_name": order.get("retailer_name", ""),
+                "address": order.get("delivery_address", ""),
+                "reason": "coordinates_missing",
             })
+            continue
         stops.append({
             "order_id": order["id"],
             "order_no": order.get("order_no", ""),
@@ -6198,8 +6375,7 @@ async def _geocode_delivery_stops(active_orders: List[dict], warehouse: dict, su
             "delivery_window": order.get("delivery_window", ""),
             "status": order.get("status", ""),
             "is_external": bool(order.get("external_order") or order.get("is_external")),
-            "lat": coordinates["lat"],
-            "lon": coordinates["lon"],
+            "lat": coordinates["lat"], "lon": coordinates["lon"],
         })
     return stops, unrouted_stops
 
@@ -6282,23 +6458,9 @@ async def optimize_delivery_route(
             raise HTTPException(422, "Current-location coordinates are out of range.")
         origin = {"lat": body.origin_lat, "lon": body.origin_lon}
     else:
-        warehouse_address = ", ".join(
-            part.strip() for part in (warehouse.get("address"), warehouse.get("city"), "Georgia")
-            if part and part.strip()
-        )
-        if not warehouse_address or warehouse_address == "Georgia":
-            raise HTTPException(400, "Add an address to the selected warehouse or share your current location.")
-        origin = warehouse.get("route_coordinates")
-        if (
-            warehouse.get("route_origin_address") != warehouse_address
-            or not isinstance(origin, dict)
-            or not isinstance(origin.get("lat"), (float, int))
-            or not isinstance(origin.get("lon"), (float, int))
-        ):
-            origin = await _geocode_address(warehouse_address)
-            await db.supplier_warehouses.update_one({"id": selected_warehouse_id, "supplier_id": owner_id}, {"$set": {
-                "route_coordinates": origin, "route_origin_address": warehouse_address,
-            }})
+        origin = _saved_route_coordinates(warehouse)
+        if not origin:
+            raise HTTPException(409, "Pin the selected warehouse on the map or share your current location.")
 
     stops, unrouted_stops = await _geocode_delivery_stops(active_orders, warehouse, owner_id)
     if not stops:
@@ -9071,14 +9233,25 @@ async def update_profile(body: ProfileIn, user: dict = Depends(get_current_user)
     await db.users.update_one({"id": user["id"]}, {"$set": _encrypt_sensitive_fields(upd)})
     if user.get("role") == "retailer" and user.get("store_access_role", "global_admin") == "global_admin":
         branch_updates = {
-            key: upd[key] for key in ("address", "phone") if key in upd
+            key: upd[key] for key in ("address", "phone", "city") if key in upd
         }
         if branch_updates:
             branch_updates["updated_at"] = now_iso()
+            location_changed = any(
+                key in upd and upd[key] != user.get(key)
+                for key in ("address", "city")
+            )
+            branch_update = {"$set": branch_updates}
+            if location_changed:
+                branch_update["$unset"] = {"lat": "", "lng": "", "route_coordinates": ""}
             await db.store_branches.update_one(
                 {"retailer_id": store_owner_id(user), "is_default": True},
-                {"$set": branch_updates},
+                branch_update,
             )
+            if location_changed:
+                await db.users.update_one(
+                    {"id": user["id"]}, {"$unset": {"lat": "", "lng": "", "route_coordinates": ""}},
+                )
     if user.get("role") == "supplier" and upd.get("business_name"):
         await db.products.update_many({"supplier_id": user["id"]}, {"$set": {"supplier_name": upd["business_name"]}})
     updated_user = await db.users.find_one({"id": user["id"]}, {"_id": 0, "password_hash": 0})
