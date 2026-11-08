@@ -13,10 +13,11 @@ import { usePwaInstall } from "@/lib/pwa";
 import { enablePush, preparePushSubscription, syncExistingPushSubscription, subscribeToPush } from "@/lib/push";
 import {
   Truck, Package, LayoutDashboard, ShoppingCart, ClipboardList, Boxes, RotateCcw,
-  Users, MessageSquare, Settings, Bell, Moon, Sun, LogOut, Menu, X, BarChart3, Globe, FileText, Wallet, Route, Store, ChartNoAxesCombined, Cable, Tags, Download, LifeBuoy, Megaphone,
+  Users, MessageSquare, Settings, Bell, Moon, Sun, LogOut, Menu, BarChart3, Globe, FileText, Wallet, Route, Store, ChartNoAxesCombined, Cable, Tags, Download, LifeBuoy, Megaphone,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import { Sheet, SheetContent, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { toast } from "sonner";
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel,
@@ -346,6 +347,13 @@ export function AppLayout({ children }) {
     typeof Notification !== "undefined" && "serviceWorker" in navigator && "PushManager" in window
   );
 
+  useEffect(() => {
+    const desktop = window.matchMedia("(min-width: 1024px)");
+    const closeOnDesktop = (event) => { if (event.matches) setMobileOpen(false); };
+    desktop.addEventListener("change", closeOnDesktop);
+    return () => desktop.removeEventListener("change", closeOnDesktop);
+  }, []);
+
   const showHomeScreenHint = () => toast.info(t("pwa.iosHint"));
 
   const requestPushPermission = () => {
@@ -440,9 +448,17 @@ export function AppLayout({ children }) {
       <header className="sticky top-0 z-40 border-b border-border/80 bg-background/90 backdrop-blur-xl">
         <div className="mx-auto flex min-h-16 max-w-screen-2xl flex-wrap items-center gap-x-3 gap-y-2 px-3 py-2 sm:flex-nowrap sm:justify-between sm:px-4 lg:px-8">
           <div className="flex min-w-0 flex-1 items-center gap-2 sm:flex-none sm:gap-3">
-            <Button variant="ghost" size="icon" className="lg:hidden" onClick={() => setMobileOpen((v) => !v)} data-testid="mobile-menu-toggle">
-              {mobileOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
-            </Button>
+            <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
+              <SheetTrigger asChild>
+                <Button variant="ghost" size="icon" className="lg:hidden" aria-label="Menu" data-testid="mobile-menu-toggle">
+                  <Menu className="h-5 w-5" />
+                </Button>
+              </SheetTrigger>
+              <SheetContent side="left" className="flex w-[min(20rem,85vw)] flex-col overflow-y-auto p-0 lg:hidden" aria-describedby={undefined} data-testid="mobile-sidebar">
+                <SheetTitle className="border-b border-border px-6 py-5 text-left">Distro Logistics</SheetTitle>
+                <SideNav />
+              </SheetContent>
+            </Sheet>
             <Link to="/" className="flex min-w-0 items-center gap-2 sm:gap-2.5">
               <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary">
                 <Truck className="h-5 w-5 text-primary-foreground" />
@@ -516,12 +532,6 @@ export function AppLayout({ children }) {
         <aside className="hidden w-64 shrink-0 border-r border-border/80 bg-card/30 lg:block">
           <div className="sticky top-16 max-h-[calc(100vh-4rem)] overflow-y-auto"><SideNav /></div>
         </aside>
-        {mobileOpen && (
-          <div className="fixed inset-0 z-30 lg:hidden">
-            <div className="absolute inset-0 bg-black/50" onClick={() => setMobileOpen(false)} />
-            <aside className="absolute left-0 top-14 h-[calc(100%-3.5rem)] w-64 overflow-y-auto border-r border-border bg-background shadow-2xl"><SideNav /></aside>
-          </div>
-        )}
         <main className="min-w-0 flex-1">
           <div key={user.role === "supplier" ? activeWarehouseId : undefined} className="mx-auto max-w-screen-2xl px-4 py-6 sm:px-6 lg:px-8 lg:py-9">
             {pushPermission === "default" && pushSupported && (

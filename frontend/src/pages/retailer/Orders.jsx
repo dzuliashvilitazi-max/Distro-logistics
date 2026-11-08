@@ -27,12 +27,12 @@ export function OrderTimeline({ order }) {
   return (
     <div className="flex items-center">
       {STEPS.map((s, i) => (
-        <div key={s} className="flex flex-1 items-center last:flex-none">
-          <div className="flex flex-col items-center">
+        <div key={s} className="flex min-w-0 flex-1 items-center">
+          <div className="flex min-w-0 flex-col items-center">
             <div className={cn("flex h-8 w-8 items-center justify-center rounded-full border-2", i <= current ? "border-primary bg-primary text-primary-foreground" : "border-border bg-card text-muted-foreground")}>
               {i < current ? <CheckCircle2 className="h-4 w-4" /> : i === 0 ? <Clock className="h-4 w-4" /> : i === 2 ? <Truck className="h-4 w-4" /> : <Package className="h-4 w-4" />}
             </div>
-            <span className={cn("mt-1 whitespace-nowrap text-[10px] font-semibold", i <= current ? "text-foreground" : "text-muted-foreground")}>{t(`status.${s}`)}</span>
+            <span className={cn("mt-1 text-center text-[10px] font-semibold [overflow-wrap:anywhere]", i <= current ? "text-foreground" : "text-muted-foreground")}>{t(`status.${s}`)}</span>
           </div>
           {i < STEPS.length - 1 && <div className={cn("mx-1 h-0.5 flex-1", i < current ? "bg-primary" : "bg-border")} />}
         </div>
@@ -194,11 +194,11 @@ export default function Orders() {
       )}
       <div className="space-y-4">
         {orders.map((o) => (
-          <div key={o.id} id={`order-${o.id}`} data-testid={`order-${o.id}`} className="rounded-xl border border-border bg-card p-5">
+          <div key={o.id} id={`order-${o.id}`} data-testid={`order-${o.id}`} className="min-w-0 rounded-xl border border-border bg-card p-3 sm:p-5">
             <div className="flex flex-wrap items-start justify-between gap-3">
-              <div>
-                <div className="flex items-center gap-2.5">
-                  <p className="font-mono text-sm font-bold">{o.order_no}</p>
+              <div className="min-w-0">
+                <div className="flex flex-wrap items-center gap-2.5">
+                  <p className="break-all font-mono text-sm font-bold">{o.order_no}</p>
                   <StatusBadge status={o.status} testid={`order-status-${o.id}`} />
                   <PaymentBadge method={o.payment_method} />
                   {["tbc", "bog"].includes(o.payment_method) && o.payment_status === "Pending" && (
@@ -207,7 +207,7 @@ export default function Orders() {
                     </span>
                   )}
                 </div>
-                <p className="mt-1 flex items-center gap-2 text-sm text-muted-foreground"><LogoAvatar logo={o.supplier_logo} name={o.supplier_name} className="h-6 w-6 shrink-0 text-xs" />{o.supplier_name} · {new Date(o.created_at).toLocaleDateString()}</p>
+                <p className="mt-1 flex min-w-0 items-center gap-2 text-sm text-muted-foreground"><LogoAvatar logo={o.supplier_logo} name={o.supplier_name} className="h-6 w-6 shrink-0 text-xs" /><span className="min-w-0 break-words [overflow-wrap:anywhere]">{o.supplier_name} · {new Date(o.created_at).toLocaleDateString()}</span></p>
                 {o.payment_method === "bank_transfer" && o.payment_reference && (
                   <p className="mt-1 text-xs font-medium text-amber-600">{t("orders.referenceHint")} {o.payment_reference}</p>
                 )}
@@ -218,53 +218,53 @@ export default function Orders() {
             <div className="my-5"><OrderTimeline order={o} /></div>
             {o.status === "In Transit" && <LiveOrderTracking order={o} />}
 
-            <div className="flex items-center justify-between">
-              <Button variant="ghost" size="sm" onClick={() => setExpanded(expanded === o.id ? null : o.id)} data-testid={`expand-order-${o.id}`}>
+            <div className="grid grid-cols-1 gap-2 sm:flex sm:flex-wrap sm:items-center sm:justify-between">
+              <Button variant="ghost" size="sm" className="h-auto min-h-8 w-full whitespace-normal text-center sm:w-auto" onClick={() => setExpanded(expanded === o.id ? null : o.id)} data-testid={`expand-order-${o.id}`}>
                 {expanded === o.id ? <ChevronUp className="mr-1 h-4 w-4" /> : <ChevronDown className="mr-1 h-4 w-4" />} {t("orders.details")}
               </Button>
               {o.status !== "Cancelled" && (
-                <Button variant="outline" size="sm" onClick={() => reorder(o)} data-testid={`reorder-${o.id}`}>
+                <Button variant="outline" size="sm" className="h-auto min-h-8 w-full whitespace-normal text-center sm:w-auto" onClick={() => reorder(o)} data-testid={`reorder-${o.id}`}>
                   <RefreshCw className="mr-1 h-4 w-4" />ხელახლა გამოწერა
                 </Button>
               )}
               {o.status !== "Cancelled" && (
-                <Button variant="outline" size="sm" onClick={() => downloadInvoice(o)} data-testid={`download-order-invoice-${o.id}`}>
+                <Button variant="outline" size="sm" className="h-auto min-h-8 w-full whitespace-normal text-center sm:w-auto" onClick={() => downloadInvoice(o)} data-testid={`download-order-invoice-${o.id}`}>
                   <FileDown className="mr-1 h-4 w-4" />{t("orders.generateInvoice")}
                 </Button>
               )}
               {o.status === "Delivered" && !o.received_at && (
-                <Button variant="outline" size="sm" onClick={() => receiveStock(o.id)} data-testid={`receive-order-${o.id}`}>
+                <Button variant="outline" size="sm" className="h-auto min-h-8 w-full whitespace-normal text-center sm:w-auto" onClick={() => receiveStock(o.id)} data-testid={`receive-order-${o.id}`}>
                   {t("orders.receiveStock")}
                 </Button>
               )}
               {o.received_at && <span className="text-xs font-medium text-emerald-600">{t("orders.stockReceived")}</span>}
               {isStoreOwner && (o.status === "Pending" || o.status === "Processing") && !(["tbc", "bog"].includes(o.payment_method) && o.payment_status !== "Succeeded") && (
-                <Button variant="outline" size="sm" className="text-rose-500 hover:bg-rose-500/10" onClick={() => cancel(o.id)} data-testid={`cancel-order-${o.id}`}><XCircle className="mr-1 h-4 w-4" /> {t("orders.cancel")}</Button>
+                <Button variant="outline" size="sm" className="h-auto min-h-8 w-full whitespace-normal text-center text-rose-500 hover:bg-rose-500/10 sm:w-auto" onClick={() => cancel(o.id)} data-testid={`cancel-order-${o.id}`}><XCircle className="mr-1 h-4 w-4" /> {t("orders.cancel")}</Button>
               )}
             </div>
 
             {expanded === o.id && (
               <div className="mt-3 space-y-2 border-t border-border pt-3">
                 {o.items.map((i, index) => (
-                  <div key={`${i.product_id}-${index}`} className="flex items-center gap-3 text-sm">
-                    <ProductImage image={i.image} name={i.name} alt="" className="h-10 w-10 rounded border border-border object-cover" />
-                    <span className="flex-1 truncate">{i.name}</span>
+                  <div key={`${i.product_id}-${index}`} className="flex min-w-0 flex-wrap items-center gap-2 sm:gap-3 text-sm">
+                    <ProductImage image={i.image} name={i.name} alt="" className="h-10 w-10 shrink-0 rounded border border-border object-cover" />
+                    <span className="min-w-0 flex-1 basis-[calc(100%-3rem)] [overflow-wrap:anywhere] sm:basis-auto">{i.name}</span>
                     <span className="font-mono text-muted-foreground">{i.quantity} × ₾{i.unit_price.toFixed(2)}</span>
                     <span className="w-20 text-right font-semibold">₾{(i.quantity * i.unit_price).toFixed(2)}</span>
                     {o.status === "Delivered" && !o.external_order && (i.returned_quantity || 0) < i.quantity && (
-                      <Button size="sm" variant="outline" onClick={() => setReturnSelection({ order: o, item: i })}
+                      <Button size="sm" variant="outline" className="h-auto min-h-8 w-full whitespace-normal sm:w-auto" onClick={() => setReturnSelection({ order: o, item: i })}
                         data-testid={`request-return-${o.id}-${i.product_id}`}>
                         {t("returns.request")}
                       </Button>
                     )}
                     {isStoreOwner && o.status === "Delivered" && (
-                      <Button size="sm" variant="outline" onClick={() => { setPricingItem({ item: i, orderId: o.id }); setIsPricingDialogOpen(true); }}>
+                      <Button size="sm" variant="outline" className="h-auto min-h-8 w-full whitespace-normal sm:w-auto" onClick={() => { setPricingItem({ item: i, orderId: o.id }); setIsPricingDialogOpen(true); }}>
                         {t("pricing.calculate")}
                       </Button>
                     )}
                   </div>
                 ))}
-                <div className="pt-2 text-sm text-muted-foreground">
+                <div className="pt-2 text-sm text-muted-foreground [overflow-wrap:anywhere]">
                   <p><span className="font-semibold text-foreground">{t("orders.payment")}:</span> {t(`payment.${o.payment_method || "cash"}`)}</p>
                   {o.payment_reference && <p><span className="font-semibold text-foreground">{t("orders.referenceNotice")}:</span> {o.payment_reference}</p>}
                   <p><span className="font-semibold text-foreground">{t("orders.deliverTo")}:</span> {o.delivery_address}</p>
@@ -272,14 +272,14 @@ export default function Orders() {
                   {o.notes && <p><span className="font-semibold text-foreground">{t("orders.notes")}:</span> {o.notes}</p>}
                 </div>
                 <div className="flex flex-wrap items-center gap-2 pt-2">
-                  <Button variant="outline" size="sm" onClick={() => sendToAccounting(o)} data-testid={`send-accounting-${o.id}`}>
+                  <Button variant="outline" size="sm" className="h-auto min-h-8 w-full whitespace-normal sm:w-auto" onClick={() => sendToAccounting(o)} data-testid={`send-accounting-${o.id}`}>
                     <Mail className="mr-1 h-4 w-4" />{t("orders.sendToAccounting")}
                   </Button>
-                  <span className="text-xs text-muted-foreground">{user.accountant_email || "ბუღალტრის ელ.ფოსტა მითითებული არ არის"}</span>
+                  <span className="min-w-0 text-xs text-muted-foreground [overflow-wrap:anywhere]">{user.accountant_email || "ბუღალტრის ელ.ფოსტა მითითებული არ არის"}</span>
                   {otherFor === o.id ? (
                     <>
                       <input type="email" value={otherEmail} onChange={(e) => setOtherEmail(e.target.value)} placeholder="name@example.com"
-                        className="h-8 rounded-md border border-input bg-background px-2 text-sm" data-testid={`other-email-${o.id}`} />
+                        className="h-8 w-full min-w-0 rounded-md border border-input bg-background px-2 text-sm sm:w-auto" data-testid={`other-email-${o.id}`} />
                       <Button size="sm" disabled={!otherEmail.trim()} onClick={() => sendToAccounting(o, otherEmail.trim())}>გაგზავნა</Button>
                       <Button size="sm" variant="ghost" onClick={() => setOtherFor(null)}>გაუქმება</Button>
                     </>
