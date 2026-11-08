@@ -218,6 +218,28 @@ export default function Orders() {
             <div className="my-5"><OrderTimeline order={o} /></div>
             {o.status === "In Transit" && <LiveOrderTracking order={o} />}
 
+            <div className="mb-4 space-y-3 border-t border-border pt-3" data-testid={`order-items-${o.id}`}>
+              {o.items.map((i, index) => (
+                <div key={`${i.product_id}-${index}`} className="flex min-w-0 flex-wrap items-center gap-2 text-sm sm:gap-3">
+                  <ProductImage image={i.image} name={i.name} alt="" className="h-10 w-10 shrink-0 rounded border border-border object-cover" />
+                  <span className="min-w-0 flex-1 basis-[calc(100%-3rem)] [overflow-wrap:anywhere] sm:basis-auto">{i.name}</span>
+                  <span className="font-mono text-muted-foreground">{i.quantity} × ₾{i.unit_price.toFixed(2)}</span>
+                  <span className="w-20 text-right font-semibold">₾{(i.quantity * i.unit_price).toFixed(2)}</span>
+                  {o.status === "Delivered" && !o.external_order && (i.returned_quantity || 0) < i.quantity && (
+                    <Button size="sm" variant="outline" className="h-auto min-h-8 w-full whitespace-normal sm:w-auto" onClick={() => setReturnSelection({ order: o, item: i })}
+                      data-testid={`request-return-${o.id}-${i.product_id}`}>
+                      {t("returns.request")}
+                    </Button>
+                  )}
+                  {isStoreOwner && o.status === "Delivered" && (
+                    <Button size="sm" variant="outline" className="h-auto min-h-8 w-full whitespace-normal sm:w-auto" onClick={() => { setPricingItem({ item: i, orderId: o.id }); setIsPricingDialogOpen(true); }}>
+                      {t("pricing.calculate")}
+                    </Button>
+                  )}
+                </div>
+              ))}
+            </div>
+
             <div className="grid grid-cols-1 gap-2 sm:flex sm:flex-wrap sm:items-center sm:justify-between">
               <Button variant="ghost" size="sm" className="h-auto min-h-8 w-full whitespace-normal text-center sm:w-auto" onClick={() => setExpanded(expanded === o.id ? null : o.id)} data-testid={`expand-order-${o.id}`}>
                 {expanded === o.id ? <ChevronUp className="mr-1 h-4 w-4" /> : <ChevronDown className="mr-1 h-4 w-4" />} {t("orders.details")}
@@ -245,25 +267,6 @@ export default function Orders() {
 
             {expanded === o.id && (
               <div className="mt-3 space-y-2 border-t border-border pt-3">
-                {o.items.map((i, index) => (
-                  <div key={`${i.product_id}-${index}`} className="flex min-w-0 flex-wrap items-center gap-2 sm:gap-3 text-sm">
-                    <ProductImage image={i.image} name={i.name} alt="" className="h-10 w-10 shrink-0 rounded border border-border object-cover" />
-                    <span className="min-w-0 flex-1 basis-[calc(100%-3rem)] [overflow-wrap:anywhere] sm:basis-auto">{i.name}</span>
-                    <span className="font-mono text-muted-foreground">{i.quantity} × ₾{i.unit_price.toFixed(2)}</span>
-                    <span className="w-20 text-right font-semibold">₾{(i.quantity * i.unit_price).toFixed(2)}</span>
-                    {o.status === "Delivered" && !o.external_order && (i.returned_quantity || 0) < i.quantity && (
-                      <Button size="sm" variant="outline" className="h-auto min-h-8 w-full whitespace-normal sm:w-auto" onClick={() => setReturnSelection({ order: o, item: i })}
-                        data-testid={`request-return-${o.id}-${i.product_id}`}>
-                        {t("returns.request")}
-                      </Button>
-                    )}
-                    {isStoreOwner && o.status === "Delivered" && (
-                      <Button size="sm" variant="outline" className="h-auto min-h-8 w-full whitespace-normal sm:w-auto" onClick={() => { setPricingItem({ item: i, orderId: o.id }); setIsPricingDialogOpen(true); }}>
-                        {t("pricing.calculate")}
-                      </Button>
-                    )}
-                  </div>
-                ))}
                 <div className="pt-2 text-sm text-muted-foreground [overflow-wrap:anywhere]">
                   <p><span className="font-semibold text-foreground">{t("orders.payment")}:</span> {t(`payment.${o.payment_method || "cash"}`)}</p>
                   {o.payment_reference && <p><span className="font-semibold text-foreground">{t("orders.referenceNotice")}:</span> {o.payment_reference}</p>}

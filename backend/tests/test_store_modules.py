@@ -342,6 +342,30 @@ def test_profile_contact_update_syncs_default_branch(monkeypatch):
         server.app.dependency_overrides.pop(server.get_current_user, None)
 
 
+def test_order_items_remain_in_history_after_status_changes(monkeypatch):
+    user = {"id": "store-1", "role": "retailer", "business_name": "Store"}
+    client, db = _install(monkeypatch, user)
+    db.orders.rows[0]["status"] = "Processing"
+    original_items = copy.deepcopy(db.orders.rows[0]["items"])
+
+    async def no_op(*_args, **_kwargs):
+        return None
+
+    monkeypatch.setattr(server, "notify", no_op)
+    monkeypatch.setattr(server.location_sockets, "broadcast_order", no_op)
+    try:
+        for status in ("Processing", "In Transit", "Delivered"):
+            if status != "Processing":
+                assert asyncio.run(server.apply_order_status(copy.deepcopy(db.orders.rows[0]), status))
+            response = client.get("/api/orders", params={"branch_id": "branch-1"})
+            assert response.status_code == 200
+            assert response.json()[0]["status"] == status
+            assert response.json()[0]["items"] == original_items
+            assert db.orders.rows[0]["items"] == original_items
+    finally:
+        server.app.dependency_overrides.pop(server.get_current_user, None)
+
+
 def test_order_listing_splits_active_and_completed_statuses(monkeypatch):
     client, _db = _install(monkeypatch, {"id": "store-1", "role": "retailer", "business_name": "Store"})
     try:
