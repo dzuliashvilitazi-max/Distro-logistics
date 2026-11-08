@@ -27,7 +27,7 @@ class _Products:
         return _Cursor(self.rows)
 
     async def update_one(self, query, update):
-        product = next(row for row in self.rows if row["id"] == query["id"])
+        product = next(row for row in self.rows if all(row.get(key) == value for key, value in query.items()))
         product.update(copy.deepcopy(update["$set"]))
 
 
@@ -72,3 +72,15 @@ def test_product_media_backfill_preserves_existing_values_and_is_idempotent():
     assert database.products.rows[2]["description"] == "Keep this"
     assert database.products.rows[3]["description"] == "Existing"
     assert asyncio.run(upgrade(database)) == 0
+
+
+def test_product_media_backfill_updates_mongo_document_without_application_id():
+    database = _Database([{
+        "_id": "mongo-only-id", "name": "Orange juice", "category": "Beverages",
+        "image": "", "description": "",
+    }])
+
+    assert asyncio.run(upgrade(database)) == 1
+    assert database.products.rows[0]["_id"] == "mongo-only-id"
+    assert database.products.rows[0]["image"].startswith("https://loremflickr.com/")
+    assert "Orange juice" in database.products.rows[0]["description"]

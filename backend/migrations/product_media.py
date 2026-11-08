@@ -12,7 +12,7 @@ async def upgrade(db) -> int:
         {"description": {"$in": [None, "", "null", "none", "undefined"]}},
         {"description": {"$regex": r"^\s*$"}},
     ]}
-    projection = {"_id": 0, "id": 1, "name": 1, "category": 1, "image": 1, "description": 1}
+    projection = {"_id": 1, "id": 1, "name": 1, "category": 1, "image": 1, "description": 1}
     fixed = 0
     async for product in db.products.find(missing, projection):
         media = complete_product_media(product)
@@ -21,6 +21,9 @@ async def upgrade(db) -> int:
             if is_missing_media(product.get(field)) or (field == "image" and is_legacy_fallback_image(product.get(field)))
         }
         if update:
-            await db.products.update_one({"id": product["id"]}, {"$set": update})
-            fixed += 1
+            product_id = product.get("id")
+            product_filter = {"id": product_id} if product_id else {"_id": product.get("_id")}
+            if product_filter.get("_id") is not None or product_id:
+                await db.products.update_one(product_filter, {"$set": update})
+                fixed += 1
     return fixed
