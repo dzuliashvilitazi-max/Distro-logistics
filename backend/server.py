@@ -1129,6 +1129,7 @@ class ContactIn(BaseModel):
 class ProfileIn(BaseModel):
     name: Optional[str] = None
     business_name: Optional[str] = None
+    email: Optional[EmailStr] = None
     address: Optional[str] = None
     phone: Optional[str] = None
     city: Optional[str] = None
@@ -9185,6 +9186,12 @@ async def update_profile(body: ProfileIn, user: dict = Depends(get_current_user)
     upd = {k: v for k, v in body.model_dump().items() if v is not None}
     upd.pop("establishment_type", None)
     upd.pop("establishment_type_other", None)
+    if "email" in upd:
+        upd["email"] = upd["email"].lower()
+        if upd["email"] != (user.get("email") or "").lower():
+            if await db.users.find_one({"email": upd["email"], "id": {"$ne": user["id"]}}):
+                raise HTTPException(409, "An account with this email already exists.")
+            upd["email_verified"] = False
     if upd.get("city") is not None:
         upd["city"] = _canon_city(upd["city"])
     if "accountant_email" in upd:
@@ -9252,7 +9259,10 @@ async def update_profile(body: ProfileIn, user: dict = Depends(get_current_user)
                 "replaced_by": safeguards.redact(after), "changed_at": now_iso(),
             })
             await log_financial_event("bank_details_changed", user, "supplier_bank", user["id"], before, after)
-    await db.users.update_one({"id": user["id"]}, {"$set": _encrypt_sensitive_fields(upd)})
+    try:
+        await db.users.update_one({"id": user["id"]}, {"$set": _encrypt_sensitive_fields(upd)})
+    except DuplicateKeyError as error:
+        raise HTTPException(409, "An account with this email already exists.") from error
     if user.get("role") == "retailer" and user.get("store_access_role", "global_admin") == "global_admin":
         branch_updates = {
             key: upd[key] for key in ("address", "phone", "city") if key in upd

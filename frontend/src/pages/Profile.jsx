@@ -24,7 +24,7 @@ export default function Profile() {
   const { user, refreshUser, setUser } = useAuth();
   const { refreshBranches } = useStoreBranch();
   const { t } = useI18n();
-  const [form, setForm] = useState({ name: user.name || "", business_name: user.business_name || "", address: user.address || "", phone: user.phone || "", accountant_email: user.accountant_email || "", city: canonCity(user.city), cities: user.cities?.length ? user.cities.map(canonCity) : (user.city ? [canonCity(user.city)] : []), category_ids: user.category_ids || [], business_sectors: user.servedSectors || user.served_sectors || user.business_sectors || [], identification_number: user.identification_number || "", establishment_type: user.entityType || user.entity_type || user.businessType || user.business_type || user.establishment_type || "grocery", establishment_type_other: user.establishment_type_other || "", card_name: user.card_name || "", card_number: "", card_expiry: user.card_expiry || "", bank_name: user.bank_name || "", iban: user.iban || "", vat_registered: Boolean(user.vat_registered) });
+  const [form, setForm] = useState({ name: user.name || "", business_name: user.business_name || "", email: user.email || "", address: user.address || "", phone: user.phone || "", accountant_email: user.accountant_email || "", city: canonCity(user.city), cities: user.cities?.length ? user.cities.map(canonCity) : (user.city ? [canonCity(user.city)] : []), category_ids: user.category_ids || [], business_sectors: user.servedSectors || user.served_sectors || user.business_sectors || [], identification_number: user.identification_number || "", establishment_type: user.entityType || user.entity_type || user.businessType || user.business_type || user.establishment_type || "grocery", establishment_type_other: user.establishment_type_other || "", card_name: user.card_name || "", card_number: "", card_expiry: user.card_expiry || "", bank_name: user.bank_name || "", iban: user.iban || "", vat_registered: Boolean(user.vat_registered) });
   const [saving, setSaving] = useState(false);
   const [extraBanks, setExtraBanks] = useState(() => (user.bank_accounts || []).filter((a) => a.iban && a.iban !== user.iban).map((a) => ({ bank_name: a.bank_name || "", iban: a.iban })));
   const currentEntityType = user.entityType || user.entity_type || user.businessType || user.business_type || user.establishment_type || "grocery";
@@ -48,10 +48,13 @@ export default function Profile() {
     delete payload.establishment_type; delete payload.establishment_type_other;
     try {
       const { data } = await api.put("/profile", payload);
+      const emailChanged = data.email !== user.email;
       setUser((current) => ({ ...current, ...data }));
+      setForm((current) => ({ ...current, email: data.email || "", accountant_email: data.accountant_email || "" }));
       await refreshUser();
       if (user.role === "retailer") await refreshBranches();
       toast.success(t("prof.updated"));
+      if (emailChanged) toast.info(t("prof.emailVerificationRequired"));
     }
     catch (err) { toast.error(formatApiError(err.response?.data?.detail)); }
     finally { setSaving(false); }
@@ -79,6 +82,7 @@ export default function Profile() {
               <Input id="establishment-type" value={entityTypeLabel} disabled readOnly className="mt-1.5" data-testid="profile-establishment-type" />
             </div>
           )}
+          <div><Label htmlFor="user-email">{t("common.email")}</Label><Input id="user-email" type="email" autoComplete="email" required value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} className="mt-1.5" data-testid="profile-email" /></div>
           <div><Label htmlFor="acc-email">ბუღალტრის ელ.ფოსტა</Label><Input id="acc-email" type="email" autoComplete="off" value={form.accountant_email} onChange={(e) => setForm({ ...form, accountant_email: e.target.value })} className="mt-1.5" placeholder="accountant@example.com" data-testid="profile-accountant-email" /></div>
           <div><Label htmlFor="ph">{t("prof.phone")}</Label><Input id="ph" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} className="mt-1.5" data-testid="profile-phone" /></div>
           <div className="grid grid-cols-2 gap-3">

@@ -234,6 +234,45 @@ def test_address_search_and_reverse_geocoding_return_pin_fields(monkeypatch):
         server.app.dependency_overrides.pop(server.get_current_user, None)
 
 
+def test_profile_email_updates_independently_and_checks_uniqueness(monkeypatch):
+    user = {"id": "store-1", "role": "retailer", "business_name": "Store", "email": "owner@example.com"}
+    client, db = _install(monkeypatch, user)
+    db.users.rows[0].update({"email": user["email"], "accountant_email": "accountant@example.com", "email_verified": True, "password_hash": "hash"})
+    db.users.rows[1]["email"] = "taken@example.com"
+    verification_emails = []
+
+    async def issue_otp(email, _name):
+        verification_emails.append(email)
+
+    monkeypatch.setattr(server, "verify_password", lambda _password, _hash: True)
+    monkeypatch.setattr(server, "issue_otp", issue_otp)
+    try:
+        unchanged = client.put("/api/profile", json={"email": "OWNER@example.com"})
+        assert unchanged.status_code == 200
+        assert db.users.rows[0]["email_verified"] is True
+
+        duplicate = client.put("/api/profile", json={"email": "Taken@example.com"})
+        assert duplicate.status_code == 409
+        invalid = client.put("/api/profile", json={"email": "invalid"})
+        assert invalid.status_code == 422
+        assert db.users.rows[0]["email"] == "owner@example.com"
+        assert db.users.rows[0]["email_verified"] is True
+
+        response = client.put("/api/profile", json={"email": "NewOwner@example.com"})
+        assert response.status_code == 200
+        assert response.json()["email"] == "newowner@example.com"
+        assert response.json()["accountant_email"] == "accountant@example.com"
+        assert db.users.rows[0]["email_verified"] is False
+        assert db.users.rows[0]["accountant_email"] == "accountant@example.com"
+
+        login = client.post("/api/auth/login", json={"email": "newowner@example.com", "password": "password"})
+        assert login.status_code == 403
+        assert login.json()["detail"] == "EMAIL_NOT_VERIFIED"
+        assert verification_emails == ["newowner@example.com"]
+    finally:
+        server.app.dependency_overrides.pop(server.get_current_user, None)
+
+
 def test_accountant_email_is_independent_from_profile_email(monkeypatch):
     user = {"id": "store-1", "role": "retailer", "business_name": "Store", "email": "owner@example.com"}
     client, db = _install(monkeypatch, user)
