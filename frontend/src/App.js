@@ -21,6 +21,10 @@ const ResetPassword = lazyPage(() => import("@/pages/PasswordRecovery"), "ResetP
 const Catalog = lazyPage(() => import("@/pages/retailer/Catalog"));
 const Cart = lazyPage(() => import("@/pages/retailer/Cart"));
 const Orders = lazyPage(() => import("@/pages/retailer/Orders"));
+const CompletedOrders = lazyPage(() => import("@/pages/retailer/PurchasePanels"), "CompletedOrders");
+const CompletedOrderDetail = lazyPage(() => import("@/pages/retailer/PurchasePanels"), "CompletedOrderDetail");
+const PurchaseAnalytics = lazyPage(() => import("@/pages/retailer/PurchasePanels"), "PurchaseAnalytics");
+const PurchaseInvoices = lazyPage(() => import("@/pages/retailer/PurchasePanels"), "PurchaseInvoices");
 const StoreFinance = lazyPage(() => import("@/pages/retailer/StoreFinance"));
 const StoreBranches = lazyPage(() => import("@/pages/retailer/StoreBranches"));
 const StoreIntegrations = lazyPage(() => import("@/pages/retailer/StoreIntegrations"));
@@ -101,6 +105,11 @@ function App() {
               <Route path="/catalog" element={<Page roles={["retailer"]}><Catalog /></Page>} />
               <Route path="/cart" element={<Page roles={["retailer"]}><Cart /></Page>} />
               <Route path="/orders" element={<Page roles={["retailer"]}><Orders /></Page>} />
+              <Route path="/completed-orders" element={<Page roles={["retailer"]} storePermission="canViewFinancials"><CompletedOrders /></Page>} />
+              <Route path="/completed-orders/:orderId" element={<Page roles={["retailer"]} storePermission="canViewFinancials"><CompletedOrderDetail /></Page>} />
+              <Route path="/purchase-analytics" element={<Page roles={["retailer"]} storePermission="canViewFinancials"><PurchaseAnalytics /></Page>} />
+              <Route path="/purchase-invoices" element={<Page roles={["retailer"]} storePermission="canViewFinancials"><PurchaseInvoices /></Page>} />
+              <Route path="/purchase-orders/:orderId" element={<Page roles={["retailer"]} storePermission="canViewFinancials"><CompletedOrderDetail completedOnly={false} /></Page>} />
               <Route path="/returns" element={<Page roles={["retailer"]}><ReturnsDashboard /></Page>} />
               <Route path="/store" element={<Page roles={["retailer"]} storePermission="canViewFinancials"><StoreFinance /></Page>} />
               <Route path="/store/finance" element={<Page roles={["retailer"]} storePermission="canViewFinancials"><StoreFinance /></Page>} />

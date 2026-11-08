@@ -33,6 +33,9 @@ const NAV = {
     { to: "/price-requests", key: "priceNegotiations", testid: "nav-store-negotiations", icon: Tags },
     { to: "/cart", key: "cart", testid: "nav-cart", icon: ShoppingCart },
     { to: "/orders", key: "myOrders", testid: "nav-my-orders", icon: ClipboardList },
+    { to: "/completed-orders", label: "დასრულებული შეკვეთები", testid: "nav-completed-orders", icon: ClipboardList },
+    { to: "/purchase-analytics", label: "შესყიდვების ანალიტიკა", testid: "nav-purchase-analytics", icon: BarChart3 },
+    { to: "/purchase-invoices", label: "ინვოისები", testid: "nav-purchase-invoices", icon: FileText },
     { to: "/returns", key: "returns", testid: "nav-retailer-returns", icon: RotateCcw },
     { to: "/finances", key: "finance", testid: "nav-store-finance", icon: Wallet },
     { to: "/branches", key: "branches", testid: "nav-store-branches", icon: Store },
@@ -396,6 +399,9 @@ export function AppLayout({ children }) {
       if (["/branches", "/employees"].includes(item.to)) return false;
       const required = {
         "/finances": "canViewFinancials", "/analytics": "canViewFinancials",
+        "/completed-orders": "canViewFinancials",
+        "/purchase-analytics": "canViewFinancials",
+        "/purchase-invoices": "canViewFinancials",
         "/profit-calculator": "canChangePrices", "/pos": "canManageApi",
       }[item.to];
       if (required && user.permissions?.[required] !== true) return false;

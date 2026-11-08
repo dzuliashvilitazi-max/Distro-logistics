@@ -366,6 +366,36 @@ def test_order_items_remain_in_history_after_status_changes(monkeypatch):
         server.app.dependency_overrides.pop(server.get_current_user, None)
 
 
+def test_purchase_orders_are_scoped_and_use_finance_status(monkeypatch):
+    user = {"id": "store-1", "role": "retailer", "business_name": "Store"}
+    client, db = _install(monkeypatch, user)
+    db.orders.rows.extend([
+        {**copy.deepcopy(db.orders.rows[0]), "id": "other-store", "retailer_id": "store-2"},
+        {**copy.deepcopy(db.orders.rows[0]), "id": "other-branch", "branch_id": "branch-2"},
+    ])
+    try:
+        response = client.get("/api/store/purchase-orders", params={"branch_id": "branch-1", "limit": 1})
+        assert response.status_code == 200
+        assert response.headers["x-total-count"] == "1"
+        assert [order["id"] for order in response.json()] == ["purchase-1"]
+        assert response.json()[0]["payment_status"] in {"unpaid", "overdue"}
+        assert response.json()[0]["items"] == db.orders.rows[0]["items"]
+        all_branches = client.get("/api/store/purchase-orders")
+        assert {order["id"] for order in all_branches.json()} == {"purchase-1", "other-branch"}
+
+        user.update({"store_access_role": "staff", "assigned_branch_id": "branch-1", "permissions": {}})
+        assert client.get("/api/store/purchase-orders").status_code == 403
+        user["permissions"]["canViewFinancials"] = True
+        assert client.get("/api/store/purchase-orders", params={"branch_id": "branch-2"}).status_code == 403
+        assert [order["id"] for order in client.get("/api/store/purchase-orders").json()] == ["purchase-1"]
+        user.pop("assigned_branch_id")
+        assert client.get("/api/store/purchase-orders").status_code == 403
+        user.update({"role": "supplier", "supplier_access_role": "global_admin"})
+        assert client.get("/api/store/purchase-orders").status_code == 403
+    finally:
+        server.app.dependency_overrides.pop(server.get_current_user, None)
+
+
 def test_order_listing_splits_active_and_completed_statuses(monkeypatch):
     client, _db = _install(monkeypatch, {"id": "store-1", "role": "retailer", "business_name": "Store"})
     try:

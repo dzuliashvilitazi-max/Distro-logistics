@@ -4546,6 +4546,30 @@ async def list_orders(
     return await _attach_supplier_logos(docs)
 
 
+@api.get("/store/purchase-orders")
+async def list_store_purchase_orders(
+    response: Response, branch_id: Optional[str] = None,
+    limit: Optional[int] = None, offset: int = 0,
+    user: dict = Depends(require_store_permission("canViewFinancials")),
+):
+    owner_id = store_owner_id(user)
+    is_owner = user.get("store_access_role", "global_admin") == "global_admin"
+    if not is_owner and not user.get("assigned_branch_id"):
+        raise HTTPException(403, "Store staff do not have an assigned branch.")
+    query = {"retailer_id": owner_id}
+    if branch_id or not is_owner:
+        query["branch_id"] = await resolve_store_branch(user, branch_id)
+    size, skip = _page(limit, offset, 500)
+    response.headers["X-Total-Count"] = str(await db.orders.count_documents(query))
+    orders = await db.orders.find(query, {"_id": 0}).sort([("created_at", -1), ("id", -1)]).skip(skip).limit(size).to_list(size)
+    supplier_ids = list({order.get("supplier_id") for order in orders if order.get("supplier_id")})
+    terms = await db.credit_terms.find(
+        {"retailer_id": owner_id, "supplier_id": {"$in": supplier_ids}}, {"_id": 0},
+    ).to_list(len(supplier_ids)) if supplier_ids else []
+    terms_by_supplier = {term["supplier_id"]: term for term in terms}
+    return [finance_order_view(order, terms_by_supplier.get(order.get("supplier_id"))) for order in orders]
+
+
 @api.get("/store/branches")
 async def list_store_branches(user: dict = Depends(require_role("retailer"))):
     owner_id = store_owner_id(user)
@@ -5638,10 +5662,12 @@ async def order_invoice_pdf(
     if user["role"] == "retailer":
         if order.get("retailer_id") != store_owner_id(user):
             raise HTTPException(404, "Order not found.")
-        require_store_owner(user)
-        assigned_branch_id = user.get("assigned_branch_id") if user.get("store_access_role") != "global_admin" else None
-        if assigned_branch_id and order.get("branch_id") != assigned_branch_id:
-            raise HTTPException(404, "Order not found.")
+        if not effective_store_permissions(user)["canViewFinancials"]:
+            raise HTTPException(403, "Permission required: canViewFinancials")
+        if user.get("store_access_role", "global_admin") != "global_admin":
+            assigned_branch_id = user.get("assigned_branch_id")
+            if not assigned_branch_id or order.get("branch_id") != assigned_branch_id:
+                raise HTTPException(404, "Order not found.")
     if user["role"] == "supplier":
         require_supplier_permission(user, "finance")
         selected_warehouse_id = await supplier_warehouse_id(user, warehouse_id)

@@ -247,6 +247,35 @@ def test_supplier_can_update_terms_and_record_partial_payments(monkeypatch):
         server.app.dependency_overrides.pop(server.get_current_user, None)
 
 
+def test_order_invoice_pdf_respects_staff_branch_and_finance_permission(monkeypatch):
+    client, orders, _terms = _setup(monkeypatch, "retailer")
+    orders.rows[0]["branch_id"] = "branch-1"
+    orders.rows[1]["branch_id"] = "branch-2"
+    staff = {"id": "staff-1", "role": "retailer", "retailer_id": "store-1", "store_access_role": "staff", "assigned_branch_id": "branch-1", "permissions": {"canViewFinancials": True}}
+    server.app.dependency_overrides[server.get_current_user] = lambda: staff
+    try:
+        assert client.get("/api/orders/order-unpaid/invoice.pdf").status_code == 200
+        assert client.get("/api/orders/order-paid/invoice.pdf").status_code == 404
+        staff["permissions"]["canViewFinancials"] = False
+        assert client.get("/api/orders/order-unpaid/invoice.pdf").status_code == 403
+        staff["permissions"]["canViewFinancials"] = True
+        staff.pop("assigned_branch_id")
+        assert client.get("/api/orders/order-unpaid/invoice.pdf").status_code == 404
+        staff["retailer_id"] = "other-store"
+        assert client.get("/api/orders/order-unpaid/invoice.pdf").status_code == 404
+    finally:
+        server.app.dependency_overrides.pop(server.get_current_user, None)
+
+
+def test_order_invoice_pdf_is_scoped_to_supplier(monkeypatch):
+    client, _orders, _terms = _setup(monkeypatch, "supplier")
+    try:
+        assert client.get("/api/orders/order-unpaid/invoice.pdf").status_code == 200
+        assert client.get("/api/orders/order-paid/invoice.pdf").status_code == 404
+    finally:
+        server.app.dependency_overrides.pop(server.get_current_user, None)
+
+
 def test_order_invoice_pdf_is_available_to_the_store(monkeypatch):
     client, _orders, _terms = _setup(monkeypatch, "retailer")
     _orders.rows[1]["items"] = [{"name": "ჩაი", "quantity": 1, "unit": "ცალი", "unit_price": 50}]
