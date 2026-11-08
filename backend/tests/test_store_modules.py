@@ -234,6 +234,57 @@ def test_address_search_and_reverse_geocoding_return_pin_fields(monkeypatch):
         server.app.dependency_overrides.pop(server.get_current_user, None)
 
 
+def test_accountant_email_is_independent_from_profile_email(monkeypatch):
+    user = {"id": "store-1", "role": "retailer", "business_name": "Store", "email": "owner@example.com"}
+    client, db = _install(monkeypatch, user)
+    db.users.rows[0]["email"] = user["email"]
+    try:
+        response = client.put("/api/profile", json={"accountant_email": " Accountant@Example.com "})
+        assert response.status_code == 200
+        assert response.json()["accountant_email"] == "accountant@example.com"
+        assert response.json()["email"] == "owner@example.com"
+        assert db.users.rows[0]["accountant_email"] == "accountant@example.com"
+
+        invalid = client.put("/api/profile", json={"accountant_email": "invalid"})
+        assert invalid.status_code == 422
+        assert db.users.rows[0]["accountant_email"] == "accountant@example.com"
+
+        cleared = client.put("/api/profile", json={"accountant_email": ""})
+        assert cleared.status_code == 200
+        assert cleared.json()["accountant_email"] == ""
+        assert cleared.json()["email"] == "owner@example.com"
+    finally:
+        server.app.dependency_overrides.pop(server.get_current_user, None)
+
+
+def test_invoice_share_uses_accountant_email_not_profile_email(monkeypatch):
+    user = {"id": "store-1", "role": "retailer", "business_name": "Store", "email": "owner@example.com"}
+    client, _db = _install(monkeypatch, user)
+    sent_to = []
+
+    async def render_invoice(_order):
+        return b"pdf"
+
+    async def send_email(**kwargs):
+        sent_to.append(kwargs["to"])
+        return True, ""
+
+    monkeypatch.setattr(server, "_render_order_invoice", render_invoice)
+    monkeypatch.setattr(server, "try_send_email_detailed", send_email)
+    try:
+        missing = client.post("/api/orders/purchase-1/invoice/share", json={})
+        assert missing.status_code == 422
+        assert sent_to == []
+
+        user["accountant_email"] = "accountant@example.com"
+        response = client.post("/api/orders/purchase-1/invoice/share", json={})
+        assert response.status_code == 200
+        assert response.json()["email"] == "accountant@example.com"
+        assert sent_to == ["accountant@example.com"]
+    finally:
+        server.app.dependency_overrides.pop(server.get_current_user, None)
+
+
 def test_profile_contact_update_syncs_default_branch(monkeypatch):
     client, db = _install(monkeypatch, {"id": "store-1", "role": "retailer", "business_name": "Store"})
     try:

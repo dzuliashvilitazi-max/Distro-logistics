@@ -79,7 +79,7 @@ export default function Profile() {
               <Input id="establishment-type" value={entityTypeLabel} disabled readOnly className="mt-1.5" data-testid="profile-establishment-type" />
             </div>
           )}
-          <div><Label htmlFor="acc-email">ბუღალტრის ელ.ფოსტა</Label><Input id="acc-email" type="email" value={form.accountant_email} onChange={(e) => setForm({ ...form, accountant_email: e.target.value })} className="mt-1.5" placeholder={user.email} data-testid="profile-accountant-email" /></div>
+          <div><Label htmlFor="acc-email">ბუღალტრის ელ.ფოსტა</Label><Input id="acc-email" type="email" autoComplete="off" value={form.accountant_email} onChange={(e) => setForm({ ...form, accountant_email: e.target.value })} className="mt-1.5" placeholder="accountant@example.com" data-testid="profile-accountant-email" /></div>
           <div><Label htmlFor="ph">{t("prof.phone")}</Label><Input id="ph" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} className="mt-1.5" data-testid="profile-phone" /></div>
           <div className="grid grid-cols-2 gap-3">
             <div><Label>{t("prof.city")}</Label>

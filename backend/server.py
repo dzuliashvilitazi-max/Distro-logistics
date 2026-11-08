@@ -5708,7 +5708,7 @@ async def share_order_invoice(
     else:
         raise HTTPException(403, "Not allowed.")
     new_email = str(body.email).strip().lower() if body.email else ""
-    recipient = new_email or str(user.get("accountant_email") or user.get("email") or "").strip()
+    recipient = new_email or str(user.get("accountant_email") or "").strip()
     if not recipient:
         raise HTTPException(422, "Accountant email is not set.")
     sender_name = user.get("business_name") or user.get("name") or "Distro Logistics user"

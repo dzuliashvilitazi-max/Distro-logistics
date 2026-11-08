@@ -275,7 +275,7 @@ export default function Orders() {
                   <Button variant="outline" size="sm" onClick={() => sendToAccounting(o)} data-testid={`send-accounting-${o.id}`}>
                     <Mail className="mr-1 h-4 w-4" />{t("orders.sendToAccounting")}
                   </Button>
-                  <span className="text-xs text-muted-foreground">{user.accountant_email || user.email}</span>
+                  <span className="text-xs text-muted-foreground">{user.accountant_email || "ბუღალტრის ელ.ფოსტა მითითებული არ არის"}</span>
                   {otherFor === o.id ? (
                     <>
                       <input type="email" value={otherEmail} onChange={(e) => setOtherEmail(e.target.value)} placeholder="name@example.com"
