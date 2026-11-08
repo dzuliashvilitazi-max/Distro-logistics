@@ -8,7 +8,7 @@ Set `APP_ENV=production`. Startup validates these settings and fails before serv
 - `CORS_ORIGINS` as a comma-separated list of explicit HTTPS origins and `APP_BASE_URL` as the public HTTPS frontend origin
 - `MONGO_AUDIT_URL` and `AUDIT_DB_NAME` for the isolated audit database
 - `FIELD_ENCRYPTION_KEY`, a URL-safe base64-encoded 32-byte AES-256 key
-- `RESEND_API_KEY` for transactional email delivery. `onboarding@resend.dev` is suitable for testing only; verify a sending domain before production use.
+- `RESEND_API_KEY` for transactional email delivery and `EMAIL_FROM` set to a sender on the verified domain, such as `Distro Logistics <onboarding@distrologistics.ge>`.
 - `WEBHOOK_ALLOWED_IPS`, a comma-separated list of canonical CIDR ranges. Do not use `0.0.0.0/0` or `::/0`.
 - `BANK_WEBHOOK_SECRET` and `INVOICE_WEBHOOK_SECRET`, each at least 32 bytes
 - `JWT_SECRET`, at least 32 bytes

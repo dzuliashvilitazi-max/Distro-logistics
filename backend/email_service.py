@@ -5,13 +5,16 @@ import ipaddress
 import logging
 from html import escape
 from html.parser import HTMLParser
+from email.utils import formataddr, parseaddr
 from urllib.parse import urlparse
 import resend
 from resend.exceptions import ResendError
 
 logger = logging.getLogger("distro.email")
 
-EMAIL_FROM_NAME = os.environ.get("EMAIL_FROM_NAME", "Distro Logistics")
+_EMAIL_FROM_NAME_SETTING = os.environ.get("EMAIL_FROM_NAME", "Distro Logistics").strip()
+EMAIL_FROM_NAME, _ = parseaddr(_EMAIL_FROM_NAME_SETTING)
+EMAIL_FROM_NAME = EMAIL_FROM_NAME or _EMAIL_FROM_NAME_SETTING or "Distro Logistics"
 EMAIL_REPLY_TO = os.environ.get("EMAIL_REPLY_TO")
 APP_BASE_URL = os.environ.get("APP_BASE_URL", "")
 
@@ -36,6 +39,20 @@ def _host_ok(host: str) -> bool:
 
 def _same_site(shown: str, real: str) -> bool:
     return shown == real or real.endswith("." + shown) or shown.endswith("." + real)
+
+
+def _sender_header() -> str:
+    configured_from = os.environ.get("EMAIL_FROM", "").strip()
+    if configured_from:
+        display_name, address = parseaddr(configured_from)
+        return formataddr((display_name or EMAIL_FROM_NAME, address)) if "@" in address else formataddr((EMAIL_FROM_NAME, configured_from))
+
+    configured_name, configured_address = parseaddr(
+        os.environ.get("EMAIL_FROM_NAME", _EMAIL_FROM_NAME_SETTING).strip(),
+    )
+    if "@" in configured_address:
+        return formataddr((configured_name or EMAIL_FROM_NAME, configured_address))
+    return formataddr((EMAIL_FROM_NAME, "onboarding@distrologistics.ge"))
 
 
 class _EmailScan(HTMLParser):
@@ -96,7 +113,7 @@ async def send_email(*, to: str, subject: str, html: str, attachments: list[dict
         raise RuntimeError("RESEND_API_KEY is not configured.")
     resend.api_key = api_key
     params = {
-        "from": f"{EMAIL_FROM_NAME} <onboarding@resend.dev>",
+        "from": _sender_header(),
         "to": [to],
         "subject": subject,
         "html": html,
