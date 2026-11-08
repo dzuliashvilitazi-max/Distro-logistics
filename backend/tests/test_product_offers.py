@@ -81,11 +81,10 @@ def setup(monkeypatch, existing_offers=()):
         custom_prices=Collection(),
         product_offers=Collection(existing_offers),
         product_offer_history=Collection(),
+        notifications=Collection(),
     )
     monkeypatch.setattr(server, "db", database)
-    async def fake_notify(*_args, **_kwargs):
-        return None
-    monkeypatch.setattr(server, "notify", fake_notify)
+    monkeypatch.setattr(server.web_push, "schedule", lambda *_args: None)
     server.app.dependency_overrides[server.get_current_user] = lambda: SUPPLIER
     return TestClient(server.app), database
 
@@ -106,6 +105,11 @@ def test_offer_expiry_cancel_and_catalog_price_reversion(monkeypatch):
         expires_at = datetime.fromisoformat(offer["expiresAt"])
         assert timedelta(days=1, hours=23) < expires_at - datetime.now(timezone.utc) < timedelta(days=2, minutes=1)
         assert database.product_offer_history.rows[0]["action"] == "sent"
+        notification = database.notifications.rows[0]
+        assert notification["user_id"] == STORE["id"]
+        assert notification["type"] == "product_offer"
+        assert notification["product_id"] == PRODUCT["id"]
+        assert notification["expires_at"] == offer["expiresAt"]
 
         priced = asyncio.run(server._apply_partner_pricing([dict(PRODUCT)], STORE["id"]))
         assert priced[0]["price_per_unit"] == 7.5

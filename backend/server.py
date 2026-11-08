@@ -1312,7 +1312,8 @@ def resolve_commission(settings: dict, store: Optional[dict], supplier: Optional
 async def notify(user_id: str, text: str, ntype: str = "info", order_id: Optional[str] = None,
                  invoice_id: Optional[str] = None, notification_id: Optional[str] = None,
                  product_id: Optional[str] = None, distributor_id: Optional[str] = None,
-                 negotiation_id: Optional[str] = None, broadcast_id: Optional[str] = None):
+                 negotiation_id: Optional[str] = None, broadcast_id: Optional[str] = None,
+                 expires_at: Optional[str] = None):
     notification = {
         "id": notification_id or str(uuid.uuid4()), "user_id": user_id, "text": text,
         "type": ntype, "read": False, "created_at": now_iso()
@@ -1333,6 +1334,8 @@ async def notify(user_id: str, text: str, ntype: str = "info", order_id: Optiona
         notification["negotiation_id"] = negotiation_id
     if broadcast_id:
         notification["broadcast_id"] = broadcast_id
+    if expires_at is not None:
+        notification["expires_at"] = expires_at
     if notification_id:
         result = await db.notifications.update_one(
             {"id": notification_id}, {"$setOnInsert": notification}, upsert=True
