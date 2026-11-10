@@ -1,6 +1,6 @@
 """Automatic product/category image assignment.
 
-Images come from the Pexels API (licensed for free commercial use), are validated, resized and stored on
+Images come from the Pixabay API (Pixabay Content License, free commercial use), are validated, resized and stored on
 local disk (PRODUCT_IMAGE_DIR) and are served by this backend, so nothing is hot-linked. A photo is only
 accepted when its description matches the product with enough confidence; otherwise the frontend shows a
 category-specific placeholder. Manually provided images are never overwritten.
@@ -27,7 +27,7 @@ logger = logging.getLogger(__name__)
 IMAGE_DIR = Path(os.environ.get("PRODUCT_IMAGE_DIR") or Path(__file__).parent / "uploads" / "products")
 URL_PREFIX = "/product-images/"
 FILE_RE = re.compile(r"^[a-f0-9]{32}\.jpg$")
-PEXELS_HOSTS = {"images.pexels.com"}
+IMAGE_HOSTS = {"pixabay.com", "cdn.pixabay.com"}
 MAX_BYTES = 5 * 1024 * 1024
 MAX_SIDE = 800
 MAX_ATTEMPTS = 5
@@ -127,7 +127,7 @@ class ProviderBusy(Exception):
 
 
 def search_enabled() -> bool:
-    return bool(os.environ.get("PEXELS_API_KEY", "").strip())
+    return bool(os.environ.get("PIXABAY_API_KEY", "").strip())
 
 
 def now_iso() -> str:
@@ -281,23 +281,24 @@ def _limiter():
     return _semaphore
 
 
-async def _pexels_search(client, query: str) -> list:
+async def _pixabay_search(client, query: str) -> list:
     response = await client.get(
-        "https://api.pexels.com/v1/search",
-        params={"query": query, "per_page": 15},
-        headers={"Authorization": os.environ["PEXELS_API_KEY"].strip()},
+        "https://pixabay.com/api/",
+        params={"key": os.environ["PIXABAY_API_KEY"].strip(), "q": query[:100], "image_type": "photo",
+                "safesearch": "true", "per_page": 15},
     )
     if response.status_code == 429:
         raise ProviderBusy()
     response.raise_for_status()
+    # Pixabay describes each photo with comma-separated tags; they play the role of a caption for scoring.
     return [{
-        "id": str(photo["id"]), "alt": photo.get("alt") or "",
-        "url": photo["src"].get("large") or photo["src"]["original"],
-        "photographer": photo.get("photographer", ""), "page": photo.get("url", ""),
-    } for photo in response.json().get("photos", [])]
+        "id": str(hit["id"]), "alt": hit.get("tags") or "",
+        "url": hit.get("largeImageURL") or hit["webformatURL"],
+        "photographer": hit.get("user", ""), "page": hit.get("pageURL", ""),
+    } for hit in response.json().get("hits", [])]
 
 
-async def cached_search(db, client, query: str, search=_pexels_search) -> list:
+async def cached_search(db, client, query: str, search=_pixabay_search) -> list:
     """One provider call per distinct query: results are cached in Mongo and concurrent callers share a request."""
     key = _norm(query)
     cache = getattr(db, "image_search_cache", None)
@@ -326,7 +327,7 @@ async def cached_search(db, client, query: str, search=_pexels_search) -> list:
 
 async def _download(client, photo: dict) -> bytes:
     parsed = urlparse(photo["url"])
-    if parsed.scheme != "https" or parsed.hostname not in PEXELS_HOSTS:
+    if parsed.scheme != "https" or parsed.hostname not in IMAGE_HOSTS:
         raise ImageError("Image host is not allowed")
     response = await client.get(photo["url"])
     response.raise_for_status()
@@ -335,7 +336,7 @@ async def _download(client, photo: dict) -> bytes:
 
 async def _stored_photo_url(db, client, photo: dict, download=_download) -> str:
     """Reuse a previously stored copy of the same provider photo; download it only once."""
-    key = f"pexels:{photo['id']}"
+    key = f"pixabay:{photo['id']}"
     assets = getattr(db, "product_image_assets", None)
     if assets is not None:
         asset = await assets.find_one({"photo_key": key}, {"_id": 0})
@@ -352,7 +353,7 @@ async def _photo_uses(db, photos: list) -> dict:
     assets = getattr(db, "product_image_assets", None)
     if assets is None or not photos:
         return {}
-    rows = await assets.find({"photo_key": {"$in": [f"pexels:{p['id']}" for p in photos]}}, {"_id": 0}).to_list(len(photos))
+    rows = await assets.find({"photo_key": {"$in": [f"pixabay:{p['id']}" for p in photos]}}, {"_id": 0}).to_list(len(photos))
     return {row["photo_key"].split(":", 1)[1]: row.get("uses", 0) for row in rows}
 
 
@@ -360,7 +361,7 @@ def _query(tokens: list) -> str:
     return " ".join(tokens[:6])
 
 
-async def find_best_image(db, client, name, category="", description="", excluded=(), search=_pexels_search):
+async def find_best_image(db, client, name, category="", description="", excluded=(), search=_pixabay_search):
     """Returns (photo, confidence, level) or (None, 0.0, None)."""
     terms = build_terms(name, category, description)
     product_tokens = list(dict.fromkeys(terms["brand"] + terms["type"]))
@@ -384,7 +385,7 @@ def _product_filter(product: dict) -> dict:
     return {**base, "image_source": {"$ne": "manual"}}
 
 
-async def assign_product_image(db, product: dict, client, search=_pexels_search, download=_download) -> str:
+async def assign_product_image(db, product: dict, client, search=_pixabay_search, download=_download) -> str:
     """Find, store and attach an image. Returns ok | no_match | error | manual | skipped."""
     if product.get("image_source") == "manual" and not is_missing_media(product.get("image")):
         return "manual"
@@ -401,8 +402,8 @@ async def assign_product_image(db, product: dict, client, search=_pexels_search,
             url = await _stored_photo_url(db, client, photo, download)
             update = {
                 "image": url, "image_source": "auto", "image_status": "ok", "image_confidence": round(confidence, 2),
-                "image_match_level": level, "image_photo_key": f"pexels:{photo['id']}",
-                "image_credit": {"provider": "Pexels", "photographer": photo["photographer"], "url": photo["page"]},
+                "image_match_level": level, "image_photo_key": f"pixabay:{photo['id']}",
+                "image_credit": {"provider": "Pixabay", "photographer": photo["photographer"], "url": photo["page"]},
                 "image_attempts": 0, "image_updated_at": now_iso(), "image_checked_at": now_iso(),
             }
             status = "ok"
@@ -446,7 +447,7 @@ _PROJECTION = {
 async def process_pending_images(db, limit: int = 10) -> dict:
     """Assign images to products that have none (batched, idempotent). Safe to call repeatedly."""
     if not search_enabled():
-        return {"processed": 0, "skipped": "PEXELS_API_KEY is not configured"}
+        return {"processed": 0, "skipped": "PIXABAY_API_KEY is not configured"}
     products = await db.products.find(pending_query(), _PROJECTION).limit(limit).to_list(limit)
     counts = {"ok": 0, "no_match": 0, "error": 0}
     async with httpx.AsyncClient(timeout=15, follow_redirects=False) as client:

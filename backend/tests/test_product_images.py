@@ -1,3 +1,4 @@
+import pytest
 import asyncio
 import io
 import sys
@@ -63,7 +64,7 @@ class Db:
 
 
 def photo(photo_id, alt):
-    return {"id": photo_id, "alt": alt, "url": f"https://images.pexels.com/{photo_id}.jpg", "photographer": "P", "page": "u"}
+    return {"id": photo_id, "alt": alt, "url": f"https://cdn.pixabay.com/{photo_id}.jpg", "photographer": "P", "page": "u"}
 
 
 def run_assign(db, product, photos, monkeypatch, tmp_path):
@@ -135,3 +136,56 @@ def test_process_image_rejects_non_images():
     except pi.ImageError:
         return
     raise AssertionError("expected ImageError")
+
+
+def _pixabay_client(handler):
+    import httpx
+    return httpx.AsyncClient(transport=httpx.MockTransport(handler))
+
+
+def test_pixabay_search_builds_expected_request_and_maps_hits(monkeypatch):
+    monkeypatch.setenv("PIXABAY_API_KEY", "test-key")
+    seen = {}
+
+    def handler(request):
+        import httpx
+        seen["params"] = dict(request.url.params)
+        return httpx.Response(200, json={"hits": [{
+            "id": 7, "tags": "snickers, chocolate, bar", "largeImageURL": "https://pixabay.com/get/x_1280.jpg",
+            "webformatURL": "https://pixabay.com/get/x_640.jpg", "user": "someone", "pageURL": "https://pixabay.com/p/7",
+        }]})
+
+    async def run():
+        async with _pixabay_client(handler) as client:
+            return await pi._pixabay_search(client, "snickers chocolate")
+
+    photos = asyncio.run(run())
+    assert seen["params"]["q"] == "snickers chocolate" and seen["params"]["safesearch"] == "true"
+    assert seen["params"]["image_type"] == "photo" and seen["params"]["key"] == "test-key"
+    assert photos == [{"id": "7", "alt": "snickers, chocolate, bar", "url": "https://pixabay.com/get/x_1280.jpg",
+                       "photographer": "someone", "page": "https://pixabay.com/p/7"}]
+
+
+def test_pixabay_rate_limit_and_empty_results_degrade_gracefully(monkeypatch, tmp_path):
+    import httpx
+    monkeypatch.setenv("PIXABAY_API_KEY", "test-key")
+
+    async def run(status, body):
+        async with _pixabay_client(lambda request: httpx.Response(status, json=body)) as client:
+            return await pi._pixabay_search(client, "x")
+
+    assert asyncio.run(run(200, {"hits": []})) == []
+    with pytest.raises(pi.ProviderBusy):
+        asyncio.run(run(429, {}))
+    db = Db([{"id": "p1", "name": "Snickers", "category": "Sweets", "image": "", "image_status": "pending"}])
+    status, _ = run_assign(db, db.products.rows[0], [], monkeypatch, tmp_path)
+    assert status == "no_match" and db.products.rows[0]["image"] == ""
+
+
+def test_search_requires_pixabay_key(monkeypatch):
+    monkeypatch.delenv("PIXABAY_API_KEY", raising=False)
+    monkeypatch.setenv("PEXELS_API_KEY", "old")
+    assert pi.search_enabled() is False
+    monkeypatch.setenv("PIXABAY_API_KEY", "k")
+    assert pi.search_enabled() is True
+

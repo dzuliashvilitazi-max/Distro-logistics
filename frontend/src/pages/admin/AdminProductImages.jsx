@@ -88,7 +88,7 @@ export default function AdminProductImages() {
       </div>
       {!data.search_configured && (
         <p className="mb-4 rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-sm" role="status">
-          სურათების მიმწოდებელი არ არის მორგებული: სერვერზე დააყენეთ გარემოს ცვლადი <code>PEXELS_API_KEY</code>.
+          სურათების მიმწოდებელი არ არის მორგებული: სერვერზე დააყენეთ გარემოს ცვლადი <code>PIXABAY_API_KEY</code>.
         </p>
       )}
       <div className="mb-5 flex flex-wrap gap-2">

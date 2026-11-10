@@ -9897,7 +9897,7 @@ async def admin_list_product_images(
 @api.post("/admin/product-images/run")
 async def admin_run_image_backfill(user: dict = Depends(require_role("admin"))):
     if not product_images.search_enabled():
-        raise HTTPException(409, "PEXELS_API_KEY is not configured on the server.")
+        raise HTTPException(409, "PIXABAY_API_KEY is not configured on the server.")
     await product_images.check_existing_images(db, 20)
     return await product_images.process_pending_images(db, 20)
 
