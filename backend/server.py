@@ -26,6 +26,7 @@ from urllib.parse import urlsplit
 import money as moneylib
 from product_media import complete_product_media
 import product_images
+import login_throttle
 import distributor_reports as reports
 
 from fastapi import FastAPI, APIRouter, HTTPException, Depends, Request, Form, Response, WebSocket, WebSocketDisconnect
@@ -157,6 +158,9 @@ def verify_password(p: str, h: str) -> bool:
         return bcrypt.checkpw(p.encode(), h.encode())
     except Exception:
         return False
+
+
+_DUMMY_PASSWORD_HASH = hash_password("distro-timing-equalizer")
 
 def create_token(user_id: str, user: Optional[dict] = None) -> str:
     payload = {"sub": user_id, "exp": datetime.now(timezone.utc) + timedelta(days=7), "type": "access"}
@@ -1655,10 +1659,25 @@ async def resend_otp(body: ResendIn):
 
 
 @api.post("/auth/login")
-async def login(body: LoginIn):
+async def login(body: LoginIn, request: Request):
+    throttle_email = login_throttle.normalize_email(body.email)
+    network = login_throttle.client_network(
+        request.headers.get("x-forwarded-for"), request.client.host if request.client else None,
+        login_throttle.config()["proxy_hops"],
+    )
+    retry_after = await login_throttle.blocked_seconds(db, network, throttle_email)
+    if retry_after:
+        raise HTTPException(
+            429, "Too many login attempts. Please try again later.",
+            headers={"Retry-After": str(retry_after)},
+        )
     user = await db.users.find_one({"email": body.email.lower()})
-    if not user or not verify_password(body.password, user["password_hash"]):
+    # Same bcrypt cost whether or not the account exists, so response time does not reveal it.
+    password_ok = verify_password(body.password, user["password_hash"] if user else _DUMMY_PASSWORD_HASH)
+    if not user or not password_ok:
+        await login_throttle.record_failure(db, network, throttle_email)
         raise HTTPException(401, "Invalid email or password")
+    await login_throttle.record_success(db, network, throttle_email)
     if user.get("email_verified") is False:
         await issue_otp(user["email"], user.get("name", ""))
         raise HTTPException(403, "EMAIL_NOT_VERIFIED")
@@ -11652,6 +11671,7 @@ async def ensure_startup_indexes():
             [("distributor_id", 1), ("store_id", 1), ("product_id", 1)], unique=True)),
         ("product_offer_history.timeline", db.product_offer_history.create_index(
             [("distributor_id", 1), ("store_id", 1), ("at", -1)])),
+        ("login_throttle.ttl", db.login_throttle.create_index("expires_at", expireAfterSeconds=0)),
         ("product_promotions.window", db.product_promotions.create_index(
             [("distributor_id", 1), ("status", 1), ("ends_at", 1)])),
         ("products.supplier_id", db.products.create_index("supplier_id")),
