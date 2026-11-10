@@ -73,6 +73,7 @@ const NAV = {
     { to: "/admin/analytics", label: "ანალიტიკა", testid: "nav-admin-analytics", icon: ChartNoAxesCombined },
     { to: "/admin/users", key: "users", testid: "nav-users", icon: Users },
     { to: "/admin/settings", key: "settings", testid: "nav-settings", icon: Settings },
+    { to: "/admin/product-images", label: "პროდუქტის სურათები", testid: "nav-product-images", icon: Package },
     { to: "/admin/support", label: "მხარდაჭერა", testid: "nav-admin-support", icon: LifeBuoy },
     { to: "/admin/broadcast", label: "შეტყობინებები", testid: "nav-admin-broadcast", icon: Megaphone },
     { to: "/messages", key: "messages", testid: "nav-messages", icon: MessageSquare },

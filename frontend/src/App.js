@@ -47,6 +47,7 @@ const AdminDashboard = lazyPage(() => import("@/pages/admin/AdminDashboard"));
 const AdminUsers = lazyPage(() => import("@/pages/admin/AdminUsers"));
 const AdminOrders = lazyPage(() => import("@/pages/admin/AdminOrders"));
 const AdminSettings = lazyPage(() => import("@/pages/admin/AdminSettings"));
+const AdminProductImages = lazyPage(() => import("@/pages/admin/AdminProductImages"));
 const AdminFinancials = lazyPage(() => import("@/pages/admin/AdminFinancials"));
 const AdminAnalytics = lazyPage(() => import("@/pages/admin/AdminAnalytics"));
 const AdminSupport = lazyPage(() => import("@/pages/admin/AdminSupport"));
@@ -149,6 +150,7 @@ function App() {
               <Route path="/admin/orders" element={<Page roles={["admin"]}><AdminOrders /></Page>} />
               <Route path="/admin/users" element={<Page roles={["admin"]}><AdminUsers /></Page>} />
               <Route path="/admin/settings" element={<Page roles={["admin"]}><AdminSettings /></Page>} />
+              <Route path="/admin/product-images" element={<Page roles={["admin"]}><AdminProductImages /></Page>} />
               <Route path="/admin/financials" element={<Page roles={["admin"]}><AdminFinancials /></Page>} />
               <Route path="/admin/analytics" element={<Page roles={["admin"]}><AdminAnalytics /></Page>} />
               <Route path="/admin/support" element={<Page roles={["admin"]}><AdminSupport /></Page>} />

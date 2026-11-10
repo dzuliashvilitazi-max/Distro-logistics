@@ -248,7 +248,7 @@ const handleExcelUpload = async (e) => {
             <tbody>
               {products.map((p) => (
                 <tr key={p.id} data-testid={`inventory-row-${p.id}`} className="border-b border-border/50 last:border-0">
-                  <td className="px-4 py-3"><div className="flex items-center gap-3"><ProductImage image={p.image} name={p.name} category={p.category} alt="" className="h-10 w-10 rounded border border-border object-cover" /><span className="max-w-xs truncate font-medium">{p.name}</span></div></td>
+                  <td className="px-4 py-3"><div className="flex items-center gap-3"><ProductImage image={p.image} name={p.name} category={p.category} alt="" className="h-10 w-10 rounded border border-border object-cover" /><span className="max-w-xs truncate font-medium">{p.name}</span>{p.image_source === "auto" && <span className="rounded bg-secondary px-1.5 py-0.5 text-[10px] text-muted-foreground" title="ავტომატურად მიენიჭა">auto</span>}</div></td>
                   <td className="px-4 py-3 text-muted-foreground">{t(categoryKey(p.category))}</td>
                   <td className="px-4 py-3 font-semibold">₾{(p.price_per_unit ?? p.price ?? 0).toFixed(2)} <span className="text-xs font-normal text-muted-foreground">/ {p.unit || "ერთეული"}</span></td>
                   <td className="px-4 py-3 font-mono">{p.moq}</td>

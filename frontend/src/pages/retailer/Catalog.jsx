@@ -51,6 +51,7 @@ export default function Catalog() {
   const [loadingDistributors, setLoadingDistributors] = useState(false);
   const [loadingProducts, setLoadingProducts] = useState(false);
   const [pendingIds, setPendingIds] = useState([]);
+  const [categoryImages, setCategoryImages] = useState({});
   const [approvedIds, setApprovedIds] = useState([]);
   useEffect(() => {
     api.get("/connections/mine")
@@ -61,6 +62,10 @@ export default function Catalog() {
       .catch(() => {});
   }, []);
   const { addItem } = useCart();
+
+  useEffect(() => {
+    api.get("/categories/images").then(({ data }) => setCategoryImages(data || {})).catch(() => {});
+  }, []);
 
   useEffect(() => {
     setPriceSort("default");
@@ -271,8 +276,9 @@ export default function Catalog() {
         {visibleCategories.length ? <div className="flex min-w-0 gap-2 overflow-x-auto pb-2" data-testid="catalog-category-quick-pick">
           {visibleCategories.map((item, index) => (
             <button key={`${item}-${index}`} type="button" onClick={() => setSelectedCategory(item)} data-testid={`category-${item.replace(/\s|&/g, "-")}`}
-              className="flex min-h-14 min-w-36 shrink-0 items-center justify-between gap-4 rounded-lg border border-border bg-card px-4 py-3 text-left text-sm font-semibold transition-colors hover:border-primary/50 hover:bg-secondary/40">
-              <span>{t(categoryKey(item))}</span><span aria-hidden="true">›</span>
+              className="flex min-h-16 min-w-44 shrink-0 items-center gap-3 rounded-lg border border-border bg-card p-2 pr-4 text-left text-sm font-semibold transition-colors hover:border-primary/50 hover:bg-secondary/40">
+              <ProductImage image={categoryImages[item]} name={item} category={item} alt="" className="h-12 w-12 shrink-0 rounded-md object-cover" />
+              <span className="flex-1">{t(categoryKey(item))}</span><span aria-hidden="true">›</span>
             </button>
           ))}
         </div> : <p className="py-10 text-center text-sm text-muted-foreground">{t("catalog.noMatch")}</p>}

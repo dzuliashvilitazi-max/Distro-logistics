@@ -24,6 +24,7 @@ from bson.decimal128 import Decimal128
 from urllib.parse import urlsplit
 import money as moneylib
 from product_media import complete_product_media
+import product_images
 
 from fastapi import FastAPI, APIRouter, HTTPException, Depends, Request, Form, Response, WebSocket, WebSocketDisconnect
 from starlette.middleware.gzip import GZipMiddleware
@@ -46,7 +47,7 @@ import hashlib
 import random
 import httpx
 from fastapi import Header, BackgroundTasks
-from fastapi.responses import StreamingResponse, JSONResponse
+from fastapi.responses import StreamingResponse, JSONResponse, FileResponse
 from email_service import try_send_email, try_send_email_detailed, invoice_email_html, reminder_email_html, otp_email_html, password_reset_otp_email_html
 from invoices import build_invoice_pdf
 from invoices import build_order_invoice_pdf
@@ -3950,6 +3951,7 @@ async def create_product(
     doc = {"id": pid, "supplier_id": owner_id, "supplier_name": user["business_name"],
            "warehouse_id": selected_warehouse_id, "stock": initial_stock, **data, "created_at": now_iso()}
     await db.products.insert_one(dict(doc))
+    product_images.schedule(db, [pid])
     inventory_collection = getattr(db, "warehouse_inventory", None)
     if selected_warehouse_id and inventory_collection is not None:
         await inventory_collection.insert_one({
@@ -3999,6 +4001,7 @@ async def update_product(
     update_data["category_id"] = category_id
     update_data.update(complete_product_media(update_data, prod))
     await db.products.update_one({"id": pid, "supplier_id": owner_id}, {"$set": update_data})
+    product_images.schedule(db, [pid])
     inventory_collection = getattr(db, "warehouse_inventory", None)
     if selected_warehouse_id and inventory_collection is not None:
         await inventory_collection.update_one(
@@ -9598,6 +9601,94 @@ async def get_logo(user_id: str):
                     headers={"Cache-Control": "public, max-age=86400", "X-Content-Type-Options": "nosniff"})
 
 
+# ---------- product & category images ----------
+@api.get("/product-images/{name}")
+async def get_product_image(name: str):
+    path = product_images.local_image_path(name)
+    if not path or not path.exists():
+        raise HTTPException(404, "Image not found")
+    return FileResponse(path, media_type="image/jpeg", headers={
+        "Cache-Control": "public, max-age=31536000, immutable", "X-Content-Type-Options": "nosniff",
+    })
+
+
+@api.get("/categories/images")
+async def category_images():
+    rows = await db.categories.find({}, {"_id": 0, "name": 1, "image": 1}).to_list(500)
+    return {row["name"]: row["image"] for row in rows if row.get("image") and row.get("name")}
+
+
+_IMAGE_ADMIN_FILTERS = {
+    "missing": {"$or": [{"image": {"$in": product_images.MISSING_VALUES}}, {"image": {"$regex": r"^\s*$"}}]},
+    "failed": {"image_status": {"$in": ["failed", "no_match"]}},
+    "auto": {"image_source": "auto"},
+    "manual": {"image_source": "manual"},
+}
+
+
+@api.get("/admin/product-images")
+async def admin_list_product_images(
+    status: str = "missing", limit: int = 50, offset: int = 0,
+    user: dict = Depends(require_role("admin")),
+):
+    query = _IMAGE_ADMIN_FILTERS.get(status, {})
+    size, skip = _page(limit, offset, 50)
+    rows = await db.products.find(query, {
+        "_id": 0, "id": 1, "name": 1, "category": 1, "supplier_name": 1, "image": 1, "image_source": 1,
+        "image_status": 1, "image_confidence": 1, "image_match_level": 1, "image_attempts": 1,
+    }).skip(skip).limit(size).to_list(size)
+    for row in rows:
+        if str(row.get("image", "")).startswith("data:"):
+            row["image"] = ""  # keep list responses small; the product page shows the stored image
+            row["image_inline"] = True
+    counts = {key: await db.products.count_documents(value) for key, value in _IMAGE_ADMIN_FILTERS.items()}
+    return {"items": rows, "counts": counts, "search_configured": product_images.search_enabled()}
+
+
+@api.post("/admin/product-images/run")
+async def admin_run_image_backfill(user: dict = Depends(require_role("admin"))):
+    if not product_images.search_enabled():
+        raise HTTPException(409, "PEXELS_API_KEY is not configured on the server.")
+    await product_images.check_existing_images(db, 20)
+    return await product_images.process_pending_images(db, 20)
+
+
+@api.post("/admin/product-images/{pid}/retry")
+async def admin_retry_product_image(pid: str, replace: bool = False, user: dict = Depends(require_role("admin"))):
+    product = await db.products.find_one({"id": pid}, {"_id": 0, "image_source": 1, "image_photo_key": 1, "image": 1})
+    if not product:
+        raise HTTPException(404, "Product not found")
+    if product.get("image_source") == "manual" and not replace:
+        raise HTTPException(409, "This product has a manually uploaded image. Upload a new one or confirm replacement.")
+    update = {"$set": {"image_status": "pending", "image_attempts": 0, "image_source": None},
+              "$unset": {"image_next_attempt_at": ""}}
+    if product.get("image_photo_key"):
+        update["$addToSet"] = {"image_excluded": product["image_photo_key"]}
+    if replace or product_images.is_missing_media(product.get("image")):
+        update["$set"]["image"] = ""
+    await db.products.update_one({"id": pid}, update)
+    product_images.schedule(db, [pid])
+    return {"ok": True, "status": "pending", "search_configured": product_images.search_enabled()}
+
+
+@api.post("/admin/product-images/{pid}/upload")
+async def admin_upload_product_image(
+    pid: str, file: UploadFile = File(...), user: dict = Depends(require_role("admin")),
+):
+    if not await db.products.find_one({"id": pid}, {"_id": 1}):
+        raise HTTPException(404, "Product not found")
+    data = await file.read(product_images.MAX_BYTES + 1)
+    try:
+        url = product_images.store_image_bytes(await asyncio.to_thread(product_images.process_image, data))
+    except product_images.ImageError as error:
+        raise HTTPException(400, str(error))
+    await db.products.update_one({"id": pid}, {"$set": {
+        "image": url, "image_source": "manual", "image_status": "ok", "image_updated_at": now_iso(),
+        "image_checked_at": now_iso(),
+    }})
+    return {"ok": True, "image": url}
+
+
 # ---------- platform settings (service fee) ----------
 @api.get("/settings")
 async def read_settings(user: dict = Depends(get_current_user)):
@@ -11524,6 +11615,8 @@ async def startup():
     if os.environ.get("BILLING_SCHEDULER", "1") != "0":
         app.state.billing_task = asyncio.create_task(billing_scheduler_loop())
         app.state.promo_task = asyncio.create_task(promotion_expiry_loop())
+        if os.environ.get("IMAGE_BACKFILL", "1") != "0":
+            app.state.image_task = asyncio.create_task(product_images.image_backfill_loop(db))
 
 
 @app.on_event("shutdown")
@@ -11534,6 +11627,9 @@ async def shutdown():
     promo_task = getattr(app.state, "promo_task", None)
     if promo_task:
         promo_task.cancel()
+    image_task = getattr(app.state, "image_task", None)
+    if image_task:
+        image_task.cancel()
     client.close()
     if audit_client is not None:
         audit_client.close()
@@ -11865,6 +11961,7 @@ async def upload_excel(
             raise HTTPException(400, "ფაილში დასამატებელი ან გასაახლებელი მონაცემები ვერ მოიძებნა.")
 
         operations, stock_updates, new_count, update_count, skipped_count = [], [], 0, 0, 0
+        touched_ids = []
         for item in plan:
             row, match = item["row"], item["match"]
             if new_only and match:
@@ -11912,6 +12009,7 @@ async def upload_excel(
                     {"$setOnInsert": doc}, upsert=True,
                 ))
                 new_count += 1
+            touched_ids.append(product_id)
             if stock_amount is not None:
                 stock_updates.append((product_id, int(stock_amount), match is not None))
 
@@ -11940,6 +12038,7 @@ async def upload_excel(
                         upsert=True, session=session,
                     )
 
+        product_images.schedule(db, touched_ids)
         return {
             "status": "success", "added": new_count, "updated": update_count, "skipped": skipped_count,
             "duplicates": duplicate_count, "processed_count": new_count + update_count,
