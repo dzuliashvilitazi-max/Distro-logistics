@@ -2,7 +2,7 @@ export const ESTABLISHMENT_TYPES = [
   "grocery", "zoo", "household", "laundry", "restaurant_cafe_bar", "hotel_hostel", "office_company",
   "confectionery", "stationery", "drive", "electronics", "construction", "apparel", "auto", "medical_pharma",
   "agriculture", "beauty_cosmetics", "furniture", "toys_festive", "sport_fitness", "printing_advertising",
-  "flowers_plants_music", "other",
+  "flowers_plants", "musical_instruments", "other",
 ];
 
 export const normalizeEntityType = (value) => {
