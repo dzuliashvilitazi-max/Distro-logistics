@@ -3962,6 +3962,7 @@ async def create_product(
         selected_warehouse_id = warehouse["id"] if warehouse else None
     pid = str(uuid.uuid4())
     data = body.model_dump()
+    data["image"] = await product_images.externalize_data_url(data.get("image"))
     data["category"], category_id = await resolve_product_category(
         data.get("name", ""), owner_id, data.get("category"),
     )
@@ -4002,6 +4003,7 @@ async def update_product(
             )
             selected_warehouse_id = warehouse["id"] if warehouse else None
     update_data = body.model_dump()
+    update_data["image"] = await product_images.externalize_data_url(update_data.get("image"))
     stock_amount = update_data.pop("stock", 0)
     if warehouse_collection is None or (
         selected_warehouse_id is None and warehouse_id is None and not prod.get("warehouse_id")
@@ -9928,7 +9930,7 @@ async def admin_upload_product_image(
         raise HTTPException(404, "Product not found")
     data = await file.read(product_images.MAX_BYTES + 1)
     try:
-        url = product_images.store_image_bytes(await asyncio.to_thread(product_images.process_image, data))
+        url = await product_images.store_image(await asyncio.to_thread(product_images.process_image, data))
     except product_images.ImageError as error:
         raise HTTPException(400, str(error))
     await db.products.update_one({"id": pid}, {"$set": {

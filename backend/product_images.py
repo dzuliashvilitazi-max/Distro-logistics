@@ -1,11 +1,12 @@
 """Automatic product/category image assignment.
 
-Images come from the Pixabay API (Pixabay Content License, free commercial use), are validated, resized and stored on
-local disk (PRODUCT_IMAGE_DIR) and are served by this backend, so nothing is hot-linked. A photo is only
+Images come from the Pixabay API (Pixabay Content License, free commercial use), are validated, resized and uploaded to Cloudinary (local disk at PRODUCT_IMAGE_DIR is only the fallback when Cloudinary is not
+configured), so nothing is hot-linked. A photo is only
 accepted when its description matches the product with enough confidence; otherwise the frontend shows a
 category-specific placeholder. Manually provided images are never overwritten.
 """
 import asyncio
+import base64
 import hashlib
 import io
 import ipaddress
@@ -228,6 +229,52 @@ def store_image_bytes(jpeg: bytes) -> str:
     return URL_PREFIX + name
 
 
+def cloudinary_configured() -> bool:
+    return all(os.environ.get(key, "").strip() for key in (
+        "CLOUDINARY_CLOUD_NAME", "CLOUDINARY_API_KEY", "CLOUDINARY_API_SECRET"))
+
+
+def _upload_to_cloudinary(jpeg: bytes) -> str:
+    import cloudinary.uploader
+    folder = os.environ.get("CLOUDINARY_FOLDER", "distro/products").strip("/")
+    try:
+        result = cloudinary.uploader.upload(
+            io.BytesIO(jpeg),
+            cloud_name=os.environ["CLOUDINARY_CLOUD_NAME"].strip(),
+            api_key=os.environ["CLOUDINARY_API_KEY"].strip(),
+            api_secret=os.environ["CLOUDINARY_API_SECRET"].strip(),
+            folder=folder, public_id=hashlib.sha256(jpeg).hexdigest()[:32],
+            overwrite=False, unique_filename=False, resource_type="image",
+        )
+        return result["secure_url"]
+    except Exception as error:  # SDK and network errors alike: the caller retries later
+        raise ImageError(f"Cloud image upload failed ({type(error).__name__})") from error
+
+
+async def store_image(jpeg: bytes) -> str:
+    """Cloudinary secure_url when configured (the only thing saved in MongoDB); otherwise the local fallback."""
+    if cloudinary_configured():
+        return await asyncio.to_thread(_upload_to_cloudinary, jpeg)
+    return store_image_bytes(jpeg)
+
+
+async def externalize_data_url(image) -> str:
+    """Supplier uploads arrive as base64 data URLs. With Cloudinary configured they are uploaded and replaced by the
+    secure_url, so MongoDB holds a link instead of the picture. If the upload fails the original value is kept."""
+    value = str(image or "")
+    if not value.startswith("data:image/") or not cloudinary_configured():
+        return image or ""
+    try:
+        encoded = value.split(",", 1)[1]
+        if len(encoded) > MAX_BYTES * 4 // 3 + 16:
+            raise ImageError("Image is larger than 5 MB")
+        raw = await asyncio.to_thread(base64.b64decode, encoded)
+        return await store_image(await asyncio.to_thread(process_image, raw))
+    except (ImageError, IndexError, ValueError):
+        logger.warning("Could not move an uploaded product image to Cloudinary; keeping the original")
+        return value
+
+
 def local_image_path(name: str):
     return IMAGE_DIR / name if FILE_RE.match(name or "") else None
 
@@ -340,10 +387,10 @@ async def _stored_photo_url(db, client, photo: dict, download=_download) -> str:
     assets = getattr(db, "product_image_assets", None)
     if assets is not None:
         asset = await assets.find_one({"photo_key": key}, {"_id": 0})
-        if asset and image_exists_locally(asset["url"]):
+        if asset and (str(asset["url"]).startswith("https://") or image_exists_locally(asset["url"])):
             await assets.update_one({"photo_key": key}, {"$inc": {"uses": 1}})
             return asset["url"]
-    url = store_image_bytes(process_image(await download(client, photo)))
+    url = await store_image(process_image(await download(client, photo)))
     if assets is not None:
         await assets.update_one({"photo_key": key}, {"$set": {"photo_key": key, "url": url}, "$inc": {"uses": 1}}, upsert=True)
     return url

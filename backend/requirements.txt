@@ -18,3 +18,4 @@ py-vapid
 pywebpush
 openpyxl
 websockets
+cloudinary>=1.40,<2.0
