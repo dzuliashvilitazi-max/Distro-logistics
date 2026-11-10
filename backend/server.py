@@ -25,6 +25,7 @@ from urllib.parse import urlsplit
 import money as moneylib
 from product_media import complete_product_media
 import product_images
+import distributor_reports as reports
 
 from fastapi import FastAPI, APIRouter, HTTPException, Depends, Request, Form, Response, WebSocket, WebSocketDisconnect
 from starlette.middleware.gzip import GZipMiddleware
@@ -8176,6 +8177,187 @@ async def supplier_analytics(
                                "orders": len([o for o in external_orders if o.get("status") != "Cancelled"]),
                                "commission": 0.0},
             "low_stock": low_stock, "popular": popular, "series": series}
+
+async def _report_scope(user: dict, permission: str, warehouse_id: Optional[str]) -> dict:
+    require_supplier_permission(user, permission)
+    query = {
+        "supplier_id": supplier_owner_id(user), "external_order": {"$ne": True}, "source": {"$ne": "external"},
+        "$or": [{"payment_method": {"$nin": ["tbc", "bog"]}}, {"payment_status": "Succeeded"}],
+    }
+    selected = await supplier_warehouse_id(user, warehouse_id)
+    if selected:
+        query["warehouse_id"] = selected
+    return query
+
+
+async def _report_names_and_terms(query: dict, orders: list) -> tuple:
+    retailer_ids = list({o.get("retailer_id") for o in orders if o.get("retailer_id")})
+    users = await db.users.find(
+        {"id": {"$in": retailer_ids}}, {"_id": 0, "id": 1, "business_name": 1, "name": 1},
+    ).to_list(len(retailer_ids) or 1) if retailer_ids else []
+    names = {u["id"]: u.get("business_name") or u.get("name") or "" for u in users}
+    terms = {t["retailer_id"]: t for t in await db.credit_terms.find(
+        {"supplier_id": query["supplier_id"]}, {"_id": 0},
+    ).to_list(5000)}
+    return names, terms
+
+
+def _report_sheets_file(sheets: dict, fmt: str, name: str) -> Response:
+    content = reports.to_csv(sheets) if fmt == "csv" else reports.to_xlsx(sheets)
+    media = "text/csv; charset=utf-8" if fmt == "csv" else "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    return Response(content=content, media_type=media, headers={
+        "Content-Disposition": f'attachment; filename="{name}.{fmt}"', "X-Content-Type-Options": "nosniff",
+    })
+
+
+def _optional_float(value: Optional[str]) -> Optional[float]:
+    try:
+        return float(value) if value not in (None, "") else None
+    except ValueError:
+        raise HTTPException(400, "Amount filters must be numbers.")
+
+
+async def _completed_report_rows(user, warehouse_id, start_date, end_date, store_id, product, order_no, payment_status):
+    _analytics_date_range(start_date, end_date, max_days=3660)
+    query = {**await _report_scope(user, "orders", warehouse_id), "status": "Delivered"}
+    orders = await db.orders.find(query, {"_id": 0}).sort("created_at", -1).to_list(20000)
+    names, terms = await _report_names_and_terms(query, orders)
+    all_rows = [reports.order_row(o, finance_order_view(o, terms.get(o.get("retailer_id"))), names.get(o.get("retailer_id"), ""))
+                for o in orders]
+    return all_rows, reports.filter_completed(all_rows, start_date, end_date, store_id, product, order_no, payment_status)
+
+
+def _filter_options(rows: list) -> dict:
+    stores = {r["store_id"]: r["store_name"] for r in rows if r.get("store_id")}
+    products = {i["product_id"]: i["name"] for r in rows for i in r.get("items", []) if i.get("product_id")}
+    return {
+        "stores": sorted(({"id": k, "name": v} for k, v in stores.items()), key=lambda s: s["name"].casefold()),
+        "products": sorted(({"id": k, "name": v} for k, v in products.items()), key=lambda p: p["name"].casefold()),
+    }
+
+
+@api.get("/supplier/reports/completed-orders")
+async def report_completed_orders(
+    start_date: Optional[str] = None, end_date: Optional[str] = None, store_id: Optional[str] = None,
+    product: Optional[str] = None, order_no: Optional[str] = None, payment_status: Optional[str] = None,
+    warehouse_id: Optional[str] = None, limit: int = 50, offset: int = 0,
+    user: dict = Depends(require_role("supplier")),
+):
+    all_rows, rows = await _completed_report_rows(
+        user, warehouse_id, start_date, end_date, store_id, product, order_no, payment_status)
+    size, skip = _page(limit, offset, 50)
+    return {"items": rows[skip:skip + size], "total": len(rows), "summary": reports.completed_summary(rows),
+            **_filter_options(all_rows)}
+
+
+@api.get("/supplier/reports/completed-orders/export")
+async def export_completed_orders(
+    format: str = Query("xlsx", pattern="^(csv|xlsx)$"),
+    start_date: Optional[str] = None, end_date: Optional[str] = None, store_id: Optional[str] = None,
+    product: Optional[str] = None, order_no: Optional[str] = None, payment_status: Optional[str] = None,
+    warehouse_id: Optional[str] = None, user: dict = Depends(require_role("supplier")),
+):
+    _, rows = await _completed_report_rows(
+        user, warehouse_id, start_date, end_date, store_id, product, order_no, payment_status)
+    return _report_sheets_file(reports.completed_sheets(rows), format, "completed-orders")
+
+
+async def _analytics_report(user, warehouse_id, start_date, end_date, store_id, product_id):
+    selected_range = _analytics_date_range(start_date, end_date, max_days=3660)
+    scope = await _report_scope(user, "orders", warehouse_id)
+    orders = await db.orders.find({**scope, **_analytics_date_query("created_at", selected_range)}, {"_id": 0}).to_list(50000)
+    previous_range = reports.previous_period(start_date, end_date)
+    previous_orders = None
+    if previous_range:
+        previous_orders = await db.orders.find({
+            **scope, **_analytics_date_query("created_at", _analytics_date_range(*previous_range, max_days=3660)),
+        }, {"_id": 0}).to_list(50000)
+    return reports.build_analytics(orders, previous_orders, start_date, end_date, store_id, product_id)
+
+
+@api.get("/supplier/reports/analytics")
+async def report_analytics(
+    start_date: Optional[str] = None, end_date: Optional[str] = None, store_id: Optional[str] = None,
+    product_id: Optional[str] = None, warehouse_id: Optional[str] = None,
+    user: dict = Depends(require_role("supplier")),
+):
+    return await _analytics_report(user, warehouse_id, start_date, end_date, store_id, product_id)
+
+
+@api.get("/supplier/reports/analytics/export")
+async def export_analytics(
+    format: str = Query("xlsx", pattern="^(csv|xlsx)$"),
+    start_date: Optional[str] = None, end_date: Optional[str] = None, store_id: Optional[str] = None,
+    product_id: Optional[str] = None, warehouse_id: Optional[str] = None,
+    user: dict = Depends(require_role("supplier")),
+):
+    data = await _analytics_report(user, warehouse_id, start_date, end_date, store_id, product_id)
+    return _report_sheets_file(reports.analytics_sheets(data), format, "analytics")
+
+
+@api.get("/supplier/reports/filter-options")
+async def report_filter_options(warehouse_id: Optional[str] = None, user: dict = Depends(require_role("supplier"))):
+    scope = await _report_scope(user, "orders", warehouse_id)
+    orders = await db.orders.find(scope, {"_id": 0, "retailer_id": 1, "retailer_name": 1,
+                                         "items.product_id": 1, "items.name": 1}).to_list(50000)
+    return _filter_options([
+        {"store_id": o.get("retailer_id"), "store_name": o.get("retailer_name", ""),
+         "items": [{"product_id": i.get("product_id"), "name": i.get("name", "")} for i in o.get("items", [])]}
+        for o in orders
+    ])
+
+
+async def _finance_report(user, warehouse_id, status, start_date, end_date, store_id, invoice_no, min_amount, max_amount):
+    _analytics_date_range(start_date, end_date, max_days=3660)
+    scope = await _report_scope(user, "finance", warehouse_id)
+    orders = await db.orders.find({**scope, "status": {"$ne": "Cancelled"}}, {"_id": 0}).sort("created_at", -1).to_list(20000)
+    names, terms = await _report_names_and_terms(scope, orders)
+    views = {o["id"]: finance_order_view(o, terms.get(o.get("retailer_id"))) for o in orders}
+    all_rows = [reports.invoice_row(o, views[o["id"]], names.get(o.get("retailer_id"), "")) for o in orders]
+    rows = reports.filter_invoices(all_rows, status, start_date, end_date, store_id, invoice_no,
+                                   _optional_float(min_amount), _optional_float(max_amount))
+    completed = [
+        o for o in orders if o.get("status") == "Delivered"
+        and (not store_id or o.get("retailer_id") == store_id)
+        and reports._in_range(views[o["id"]].get("delivered_at"), start_date, end_date)
+    ]
+    summary = reports.finance_summary(rows, completed)
+    payouts = await db.payouts.find({"supplier_id": scope["supplier_id"]}, {"_id": 0}).sort("created_at", -1).to_list(2000)
+    commission_invoices = await db.invoices.find({"supplier_id": scope["supplier_id"]}, {"_id": 0}).sort("created_at", -1).to_list(500)
+    events = reports.settlement_events(
+        [o for o in orders if not store_id or o.get("retailer_id") == store_id],
+        payouts, commission_invoices, names, start_date, end_date)
+    return all_rows, rows, summary, events
+
+
+@api.get("/supplier/reports/finance")
+async def report_finance(
+    status: Optional[str] = None, start_date: Optional[str] = None, end_date: Optional[str] = None,
+    store_id: Optional[str] = None, invoice_no: Optional[str] = None,
+    min_amount: Optional[str] = None, max_amount: Optional[str] = None,
+    warehouse_id: Optional[str] = None, limit: int = 50, offset: int = 0,
+    user: dict = Depends(require_role("supplier")),
+):
+    all_rows, rows, summary, events = await _finance_report(
+        user, warehouse_id, status, start_date, end_date, store_id, invoice_no, min_amount, max_amount)
+    size, skip = _page(limit, offset, 50)
+    stores = {r["store_id"]: r["store_name"] for r in all_rows if r.get("store_id")}
+    return {"items": rows[skip:skip + size], "total": len(rows), "summary": summary, "settlements": events,
+            "stores": sorted(({"id": k, "name": v} for k, v in stores.items()), key=lambda s: s["name"].casefold())}
+
+
+@api.get("/supplier/reports/finance/export")
+async def export_finance(
+    format: str = Query("xlsx", pattern="^(csv|xlsx)$"),
+    status: Optional[str] = None, start_date: Optional[str] = None, end_date: Optional[str] = None,
+    store_id: Optional[str] = None, invoice_no: Optional[str] = None,
+    min_amount: Optional[str] = None, max_amount: Optional[str] = None,
+    warehouse_id: Optional[str] = None, user: dict = Depends(require_role("supplier")),
+):
+    _, rows, summary, events = await _finance_report(
+        user, warehouse_id, status, start_date, end_date, store_id, invoice_no, min_amount, max_amount)
+    return _report_sheets_file(reports.invoice_sheets(rows, summary, events), format, "invoices-finance")
+
 
 @api.get("/analytics/admin")
 async def admin_analytics(user: dict = Depends(require_role("admin"))):

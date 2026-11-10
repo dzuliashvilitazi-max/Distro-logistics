@@ -40,6 +40,9 @@ const StorePriceNegotiations = lazyPage(() => import("@/pages/retailer/PriceNego
 const SupplierDashboard = lazyPage(() => import("@/pages/supplier/SupplierDashboard"));
 const Inventory = lazyPage(() => import("@/pages/supplier/Inventory"));
 const SupplierOrders = lazyPage(() => import("@/pages/supplier/SupplierOrders"));
+const SupplierCompletedOrders = lazyPage(() => import("@/pages/supplier/SupplierCompletedOrders"));
+const SupplierAnalytics = lazyPage(() => import("@/pages/supplier/SupplierAnalytics"));
+const SupplierFinanceCenter = lazyPage(() => import("@/pages/supplier/SupplierFinanceCenter"));
 const DeliveryRoute = lazyPage(() => import("@/pages/supplier/DeliveryRoute"));
 const DriverRoute = lazyPage(() => import("@/pages/DriverRoute"));
 const SupplierDrivers = lazyPage(() => import("@/pages/supplier/SupplierDrivers"));
@@ -143,6 +146,9 @@ function App() {
               <Route path="/supplier/drivers" element={<Page roles={["supplier"]} supplierPermission="drivers"><SupplierDrivers /></Page>} />
               <Route path="/supplier/invoices" element={<Page roles={["supplier"]} supplierOwnerOnly><SupplierInvoices /></Page>} />
               <Route path="/supplier/finance" element={<Page roles={["supplier"]} supplierPermission="finance"><SupplierFinance /></Page>} />
+              <Route path="/distributor/completed-orders" element={<Page roles={["supplier"]} supplierPermission="orders"><SupplierCompletedOrders /></Page>} />
+              <Route path="/distributor/analytics" element={<Page roles={["supplier"]} supplierPermission="orders"><SupplierAnalytics /></Page>} />
+              <Route path="/distributor/invoices-finance" element={<Page roles={["supplier"]} supplierPermission="finance"><SupplierFinanceCenter /></Page>} />
               <Route path="/supplier/warehouses" element={<Page roles={["supplier"]} supplierOwnerOnly><SupplierWarehouses /></Page>} />
               <Route path="/supplier/staff" element={<Page roles={["supplier"]} supplierOwnerOnly><SupplierStaff /></Page>} />
 

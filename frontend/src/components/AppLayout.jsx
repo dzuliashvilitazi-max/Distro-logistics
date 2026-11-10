@@ -13,7 +13,7 @@ import { usePwaInstall } from "@/lib/pwa";
 import { enablePush, preparePushSubscription, syncExistingPushSubscription, subscribeToPush } from "@/lib/push";
 import {
   Truck, Package, LayoutDashboard, ShoppingCart, ClipboardList, Boxes, RotateCcw,
-  Users, MessageSquare, Settings, Bell, Moon, Sun, LogOut, Menu, BarChart3, Globe, FileText, Wallet, Route, Store, ChartNoAxesCombined, Cable, Tags, Download, LifeBuoy, Megaphone,
+  Users, MessageSquare, Settings, Bell, Moon, Sun, LogOut, Menu, BarChart3, Globe, FileText, Wallet, Route, Store, ChartNoAxesCombined, Cable, Tags, Download, LifeBuoy, Megaphone, CheckCheck, Landmark,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -51,6 +51,9 @@ const NAV = {
     { to: "/supplier", key: "dashboard", testid: "nav-dashboard", icon: LayoutDashboard },
     { to: "/supplier/inventory", key: "inventory", testid: "nav-inventory", icon: Boxes },
     { to: "/supplier/orders", key: "orders", testid: "nav-orders", icon: ClipboardList },
+    { to: "/distributor/completed-orders", label: "დასრულებული შეკვეთები", testid: "nav-completed-orders", icon: CheckCheck },
+    { to: "/distributor/analytics", label: "ანალიტიკა", testid: "nav-distributor-analytics", icon: ChartNoAxesCombined },
+    { to: "/distributor/invoices-finance", label: "ინვოისები და ფინანსები", testid: "nav-invoices-finance", icon: Landmark },
     { to: "/supplier/returns", key: "returns", testid: "nav-supplier-returns", icon: RotateCcw },
     { to: "/distributor/stores", key: "myStores", testid: "nav-my-stores", icon: Store },
     { to: "/distributor/promotions", label: "აქციები", testid: "nav-promotions", icon: Megaphone },
@@ -417,6 +420,8 @@ export function AppLayout({ children }) {
     if (item.to === "/supplier/routes") return supplierPermissions.has("routes") || supplierPermissions.has("deliveries");
     if (item.to === "/supplier/drivers") return supplierPermissions.has("drivers") || supplierPermissions.has("deliveries");
     if (item.to === "/supplier/finance") return supplierPermissions.has("finance");
+    if (["/distributor/completed-orders", "/distributor/analytics"].includes(item.to)) return supplierPermissions.has("orders");
+    if (item.to === "/distributor/invoices-finance") return supplierPermissions.has("finance");
     return true;
   });
 
