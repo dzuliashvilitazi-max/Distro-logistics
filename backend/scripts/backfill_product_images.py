@@ -4,6 +4,7 @@ Usage (from the backend folder):
     python scripts/backfill_product_images.py --dry-run      # only count, change nothing
     python scripts/backfill_product_images.py                # process everything, in batches
     python scripts/backfill_product_images.py --limit 50 --batch 10 --pause 3
+    python scripts/backfill_product_images.py --migrate-local --retry-no-match   # also move old local files to Cloudinary
 
 Safe to repeat: products with a manual or already assigned image are skipped, and products whose search found
 no confident match are not retried automatically (use the admin panel to retry them).
@@ -47,12 +48,31 @@ async def summary(db) -> dict:
     }
 
 
+async def migrate_local_images(db) -> dict:
+    """Upload images still stored as /product-images/<file> to Cloudinary and replace the link. Missing files are re-searched."""
+    moved = lost = 0
+    for collection in (db.products, db.categories):
+        async for doc in collection.find({"image": {"$regex": r"^/product-images/"}}, {"_id": 1, "image": 1, "image_source": 1}):
+            path = pi.local_image_path(str(doc["image"]).rsplit("/", 1)[-1].split("?")[0])
+            if path and path.exists():
+                url = await pi.store_image(path.read_bytes())
+                await collection.update_one({"_id": doc["_id"]}, {"$set": {"image": url, "image_checked_at": pi.now_iso()}})
+                await db.product_image_assets.update_many({"url": doc["image"]}, {"$set": {"url": url}})
+                moved += 1
+            elif doc.get("image_source") != "manual":
+                await collection.update_one({"_id": doc["_id"]}, {"$set": {"image": "", "image_status": "pending", "image_attempts": 0}})
+                lost += 1
+    return {"moved_to_cloudinary": moved, "file_missing_requeued": lost}
+
+
 async def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--dry-run", action="store_true", help="count only; nothing is written")
     parser.add_argument("--batch", type=int, default=10, help="products per round (default 10)")
     parser.add_argument("--limit", type=int, default=0, help="stop after this many products (0 = all)")
     parser.add_argument("--pause", type=float, default=2.0, help="seconds between rounds to respect rate limits")
+    parser.add_argument("--migrate-local", action="store_true", help="move images stored on local disk to Cloudinary")
+    parser.add_argument("--retry-no-match", action="store_true", help="search again for products that had no confident match")
     args = parser.parse_args()
 
     url = os.environ["MONGO_URL"]
@@ -67,6 +87,17 @@ async def main() -> int:
         return 1
 
     await upgrade(db)  # marks products without a usable image as pending (idempotent)
+    if args.migrate_local:
+        if not pi.cloudinary_configured():
+            print("Cloudinary is not configured; skipping --migrate-local.")
+        else:
+            print("Migration:", await migrate_local_images(db))
+    if args.retry_no_match:
+        retry = await db.products.update_many(
+            {**NO_IMAGE, "image_status": "no_match"},
+            {"$set": {"image_status": "pending", "image_attempts": 0}, "$unset": {"image_next_attempt_at": ""}},
+        )
+        print(f"Re-queued {retry.modified_count} products with no previous match.")
     handled = assigned = 0
     while not args.limit or handled < args.limit:
         size = min(args.batch, args.limit - handled) if args.limit else args.batch

@@ -92,7 +92,7 @@ _VOCAB = {
     "ქოთან": "flower pot", "ბანერ": "banner", "ვიზიტ": "business cards", "ბუშტ": "balloons", "სათამაშო": "toy",
     "ნაძვ": "christmas tree", "საჩუქარ": "gift",
     # category labels (Georgian)
-    "სასმელები": "beverages drinks", "სურსათი": "groceries", "სნექები და ტკბილეული": "snacks sweets",
+    "სასმელ": "beverages drinks", "სურსათი": "groceries", "სნექები და ტკბილეული": "snacks sweets",
     "ტკბილეული": "sweets", "მშრალი პროდუქტები": "dry goods", "ნახევარფაბრიკატ": "frozen food",
     "საყოფაცხოვრებო ქიმია": "cleaning supplies", "ჰიგიენა": "personal hygiene", "შეფუთვა": "packaging",
     "სამშენებლო": "construction materials", "ტექნიკა": "electronics", "ტანსაცმელი": "clothing",
