@@ -68,7 +68,7 @@ function NotificationPanel({ role }) {
     }
     const distributorId = notification.distributor_id || notification.distributorId;
     const productId = notification.product_id || notification.productId;
-    if (notification.type === "product_offer" && role === "retailer"
+    if (["product_offer", "promo", "promo_expiring"].includes(notification.type) && role === "retailer"
       && distributorId && productId) {
       return `/catalog?distributor_id=${encodeURIComponent(distributorId)}&product_id=${encodeURIComponent(productId)}`;
     }

@@ -24,6 +24,7 @@ const STANDARD_CATEGORIES = new Set(Object.values(SECTOR_CATEGORY_MAPPING).flat(
 import { CityMultiSelect } from "@/components/CityMultiSelect";
 import { isAllCities } from "@/lib/cities";
 import SmartInventoryWidget from "@/components/SmartInventoryWidget";
+import PromoCountdown from "@/components/PromoCountdown";
 
 export default function Catalog() {
   const { t } = useI18n();
@@ -332,6 +333,7 @@ export default function Catalog() {
                     <div className="relative aspect-[4/3] overflow-hidden bg-secondary">
                       <ProductImage image={p.image} name={p.name} category={p.category} alt={p.name} className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105" />
                       <Badge className="absolute left-3 top-3 bg-background/90 text-foreground backdrop-blur">{t(categoryKey(p.category))}</Badge>
+                      {p.is_promo && <Badge className="absolute bottom-3 left-3 bg-rose-600 text-white" data-testid={`promo-badge-${p.id}`}>აქციაშია</Badge>}
                       {p.stock <= 0 ? <Badge className="absolute right-3 top-3 bg-rose-500 text-white">{t("catalog.outOfStock")}</Badge>
                         : p.stock < 50 ? <Badge className="absolute right-3 top-3 bg-processing text-background">{t("catalog.low")}: {p.stock}</Badge> : null}
                     </div>
@@ -340,7 +342,15 @@ export default function Catalog() {
                       <h3 className="mt-1 line-clamp-2 text-sm font-semibold leading-snug">{p.name}</h3>
                       <div className="mt-3 flex flex-wrap items-end justify-between gap-2">
                         <div className="min-w-0">
-                          <p className="text-xl font-extrabold">₾{Number(p.price_per_unit).toFixed(2)}</p>
+                          {p.is_promo && p.active_promotion ? (
+                            <>
+                              <p className="flex flex-wrap items-baseline gap-x-2">
+                                <span className="text-sm text-muted-foreground line-through" data-testid={`promo-old-price-${p.id}`}>₾{Number(p.base_price).toFixed(2)}</span>
+                                <span className="text-xl font-extrabold text-rose-600" data-testid={`promo-new-price-${p.id}`}>₾{Number(p.price_per_unit).toFixed(2)}</span>
+                              </p>
+                              <PromoCountdown endsAt={p.active_promotion.ends_at} />
+                            </>
+                          ) : <p className="text-xl font-extrabold">₾{Number(p.price_per_unit).toFixed(2)}</p>}
                           <p className="font-mono text-[11px] text-muted-foreground">{t("catalog.moq")} {p.moq}</p>
                         </div>
                         <span className="relative z-10 flex shrink-0 items-center gap-1 whitespace-nowrap rounded-md bg-primary/10 px-2 py-1 font-mono text-[10px] font-semibold text-primary"><Layers className="h-3 w-3" />{p.tier_pricing?.length || 1} {t("catalog.tiers")}</span>

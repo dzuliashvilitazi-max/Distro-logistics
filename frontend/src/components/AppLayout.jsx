@@ -244,7 +244,7 @@ function NotificationBell({ onPermissionChange, onPushContextReady, requiresHome
     }
     const distributorId = notification.distributor_id || notification.distributorId;
     const productId = notification.product_id || notification.productId;
-    if (notification.type === "product_offer" && user.role === "retailer"
+    if (["product_offer", "promo", "promo_expiring"].includes(notification.type) && user.role === "retailer"
       && distributorId && productId) {
       return `/catalog?distributor_id=${encodeURIComponent(distributorId)}&product_id=${encodeURIComponent(productId)}`;
     }

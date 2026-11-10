@@ -29,6 +29,7 @@ PUSH_TITLES = {
     "negotiation_rejected": "ფასის მოთხოვნა უარყოფილია",
     "product_offer": "სპეციალური შეთავაზება",
     "promo": "ახალი აქცია",
+    "promo_expiring": "აქცია იწურება",
     "connection_request": "პარტნიორობის მოთხოვნა",
     "connection_approved": "პარტნიორობა დადასტურდა",
     "connection_declined": "პარტნიორობა უარყოფილია",
@@ -131,7 +132,7 @@ def push_url(notification: dict, role: str) -> str:
         return f"{base}?negotiation_id={quote(notification['negotiation_id'], safe='')}"
     distributor_id = notification.get("distributor_id")
     product_id = notification.get("product_id")
-    if ntype == "product_offer" and role == "retailer" and distributor_id and product_id:
+    if ntype in {"product_offer", "promo", "promo_expiring"} and role == "retailer" and distributor_id and product_id:
         return f"/catalog?distributor_id={quote(distributor_id, safe='')}&product_id={quote(product_id, safe='')}"
     if ntype in CONNECTION_TYPES:
         return "/distributor/stores" if role == "supplier" else "/store/distributors"

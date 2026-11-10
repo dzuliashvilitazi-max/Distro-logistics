@@ -1309,6 +1309,9 @@ def resolve_commission(settings: dict, store: Optional[dict], supplier: Optional
     return resolved
 
 
+PRODUCT_LINK_TYPES = {"product_offer", "promo", "promo_expiring"}
+
+
 async def notify(user_id: str, text: str, ntype: str = "info", order_id: Optional[str] = None,
                  invoice_id: Optional[str] = None, notification_id: Optional[str] = None,
                  product_id: Optional[str] = None, distributor_id: Optional[str] = None,
@@ -1324,11 +1327,11 @@ async def notify(user_id: str, text: str, ntype: str = "info", order_id: Optiona
         notification["invoice_id"] = invoice_id
     if product_id:
         notification["product_id"] = product_id
-        if ntype == "product_offer":
+        if ntype in PRODUCT_LINK_TYPES:
             notification["productId"] = product_id
     if distributor_id:
         notification["distributor_id"] = distributor_id
-        if ntype == "product_offer":
+        if ntype in PRODUCT_LINK_TYPES:
             notification["distributorId"] = distributor_id
     if negotiation_id:
         notification["negotiation_id"] = negotiation_id
@@ -2690,10 +2693,45 @@ async def _active_promotions(distributor_ids: List[str]) -> dict:
     return {row["product_id"]: row for row in rows}
 
 
+async def send_promotion_expiry_reminders() -> None:
+    """Notify connected stores once at <=2 days and once at <=1 day before a promotion ends."""
+    now = datetime.now(timezone.utc)
+    rows = await db.product_promotions.find({
+        "status": {"$in": ["scheduled", "active"]},
+        "starts_at": {"$lte": _promo_ts(now)}, "ends_at": {"$gt": _promo_ts(now)},
+    }, {"_id": 0}).to_list(5000)
+    for promo in rows:
+        remaining = datetime.fromisoformat(promo["ends_at"]) - now
+        for days, flag in ((1, "reminder_1d_sent"), (2, "reminder_2d_sent")):
+            # The 2-day alert is skipped when the promo is already inside its last day.
+            if remaining > timedelta(days=days) or promo.get(flag) or (days == 2 and remaining <= timedelta(days=1)):
+                continue
+            claimed = await db.product_promotions.update_one(
+                {"id": promo["id"], flag: {"$ne": True}}, {"$set": {flag: True}},
+            )
+            if claimed.modified_count != 1:
+                break
+            product = await db.products.find_one({"id": promo["product_id"]}, {"_id": 0, "name": 1}) or {}
+            stores = await db.store_distributor_connections.find(
+                {"distributor_id": promo["distributor_id"], "status": "APPROVED"}, {"_id": 0, "store_id": 1},
+            ).to_list(10000)
+            label = "2 დღე" if days == 2 else "1 დღე"
+            for store in stores:
+                await notify(
+                    store["store_id"],
+                    f"⏳ აქცია იწურება! {product.get('name', '')} — დარჩა {label}. "
+                    f"აქციური ფასი: ₾{float(promo['promo_price']):.2f}.",
+                    "promo_expiring", product_id=promo["product_id"], distributor_id=promo["distributor_id"],
+                    notification_id=f"promo-{promo['id']}-{days}d-{store['store_id']}", expires_at=promo["ends_at"],
+                )
+            break
+
+
 async def promotion_expiry_loop():
     while True:
         try:
             await expire_product_promotions()
+            await send_promotion_expiry_reminders()
         except asyncio.CancelledError:
             raise
         except Exception:
