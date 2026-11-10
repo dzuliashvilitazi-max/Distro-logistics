@@ -283,8 +283,15 @@ export default function SupplierOrders() {
 
               <div className="my-3 space-y-1.5 border-y border-border py-3">
                 {o.items.map((i) => (
-                  <div key={i.product_id} className="flex items-center gap-3 text-sm"><ProductImage image={i.image} name={i.name} alt="" className="h-9 w-9 rounded border border-border object-cover" /><span className="flex-1 truncate">{i.name}</span><span className="font-mono text-muted-foreground">{i.quantity} × ₾{i.unit_price.toFixed(2)}</span></div>
+                  <div key={i.product_id} className="flex items-center gap-3 text-sm"><ProductImage image={i.image} name={i.name} alt="" className="h-9 w-9 rounded border border-border object-cover" /><span className="flex-1 truncate">{i.name}</span><span className="font-mono text-muted-foreground">{i.quantity} × {i.list_price > i.unit_price && <s className="mr-1">₾{i.list_price.toFixed(2)}</s>}₾{i.unit_price.toFixed(2)}</span></div>
                 ))}
+                {o.commission_breakdown && (
+                  <dl className="mt-2 space-y-0.5 rounded-md bg-secondary/40 p-2.5 text-xs" data-testid={`commission-breakdown-${o.id}`}>
+                    <div className="flex justify-between"><dt className="text-muted-foreground">საბაზისო თანხა</dt><dd className="font-mono">₾{Number(o.commission_breakdown.base_amount).toFixed(2)}</dd></div>
+                    <div className="flex justify-between"><dt className="text-muted-foreground">პლატფორმის საკომისიო{o.commission_breakdown.fee_type === "percent" ? ` (${o.commission_breakdown.fee_value}%)` : ""}</dt><dd className="font-mono">−₾{Number(o.commission_breakdown.commission).toFixed(2)}</dd></div>
+                    <div className="flex justify-between border-t border-border pt-0.5 font-semibold"><dt>თქვენთვის გადასახდელი</dt><dd className="font-mono">₾{Number(o.commission_breakdown.distributor_net).toFixed(2)}</dd></div>
+                  </dl>
+                )}
                 {o.notes && <p className="pt-1 text-xs text-muted-foreground"><span className="font-semibold text-foreground">{tr("orders.notes")}:</span> {o.notes}</p>}
               </div>
 

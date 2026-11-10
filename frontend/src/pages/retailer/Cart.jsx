@@ -32,9 +32,7 @@ export default function Cart() {
   const [cards, setCards] = useState([]);
   const [cardId, setCardId] = useState(null);
   const [recentOrders, setRecentOrders] = useState([]);
-  const [settings, setSettings] = useState(null);
   const [placing, setPlacing] = useState(false);
-  useEffect(() => { api.get("/settings").then((r) => setSettings(r.data)); }, []);
   useEffect(() => {
     api.get("/payments/cards").then((r) => {
       const list = r.data.cards || [];
@@ -45,7 +43,6 @@ export default function Cart() {
   }, []);
   const lines = useMemo(() => items.map((i) => ({ ...i, unit: tierPrice(i, i.quantity), subtotal: tierPrice(i, i.quantity) * i.quantity })), [items]);
   const total = lines.reduce((s, l) => s + l.subtotal, 0);
-  const fee = settings ? (settings.fee_type === "fixed" ? Number(settings.fee_value) : total * Number(settings.fee_value) / 100) : 0;
 
   const checkout = async () => {
     if (!address.trim()) { toast.error(t("checkout.enterAddress")); return; }
@@ -203,7 +200,6 @@ export default function Cart() {
             <div><Label htmlFor="notes">{t("checkout.orderNotes")}</Label><Textarea id="notes" value={notes} onChange={(e) => setNotes(e.target.value)} className="mt-1.5" rows={2} data-testid="checkout-notes" placeholder={t("checkout.notesPlaceholder")} /></div>
             <div className="border-t border-border pt-3">
               <div className="flex items-center justify-between text-sm text-muted-foreground"><span>{t("checkout.items")}</span><span>{lines.length}</span></div>
-              {settings && <div className="mt-1 flex items-center justify-between text-sm text-muted-foreground" data-testid="service-fee-line"><span>{t("checkout.serviceFee")} ({settings.fee_type === "fixed" ? `₾${settings.fee_value}` : `${settings.fee_value}%`})</span><span>₾{fee.toFixed(2)}</span></div>}
               <div className="mt-2 flex items-center justify-between"><span className="text-base font-semibold">{t("checkout.orderTotal")}</span><span className="text-2xl font-extrabold" data-testid="cart-total">₾{total.toFixed(2)}</span></div>
             </div>
             <Button className="h-12 w-full text-base" onClick={checkout} disabled={placing} data-testid="place-order-btn">

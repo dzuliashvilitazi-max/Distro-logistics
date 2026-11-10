@@ -276,25 +276,32 @@ def build_order_invoice_pdf(
     ]))
     elements.extend([parties, Spacer(1, 5 * mm)])
 
-    rows = [["#", "კოდი", "პროდუქტის დასახელება", "ფასი (GEL)", "რაოდენობა", "სულ (GEL)"]]
+    rows = [["#", "კოდი", "პროდუქტის დასახელება", "ფასი", "ფასდაკლება", "საბოლოო ფასი", "რაოდ.", "სულ (GEL)"]]
     has_exempt = False
+    list_total = 0.0
     for index, item in enumerate(order.get("items", []), start=1):
         quantity = float(item.get("quantity", 0) or 0)
         unit_price = float(item.get("unit_price", 0) or 0)
+        list_price = float(item.get("list_price") or unit_price)
+        list_price = max(list_price, unit_price)
         exempt = bool(item.get("discount_exempt") or item.get("no_discount"))
         has_exempt = has_exempt or exempt
         name = _text(item.get("name")) + (" *" if exempt else "")
+        discounted = list_price > unit_price
+        list_total += list_price * quantity
         rows.append([
             str(index),
             Paragraph(_text(item.get("sku") or item.get("code")), value),
             Paragraph(name, value),
+            Paragraph(f"<strike>{_plain_number(list_price)}</strike>", right) if discounted else _plain_number(list_price),
+            f"-{(list_price - unit_price) / list_price * 100:.1f}%" if discounted else "—",
             _plain_number(unit_price),
             f"{quantity:g}",
             _plain_number(quantity * unit_price),
         ])
     if not order.get("items"):
-        rows.append(["", "", Paragraph("საქონლის მონაცემები არ არის", value), "", "", ""])
-    item_table = Table(rows, colWidths=[9 * mm, 26 * mm, 66 * mm, 25 * mm, 22 * mm, 26 * mm], repeatRows=1)
+        rows.append(["", "", Paragraph("საქონლის მონაცემები არ არის", value), "", "", "", "", ""])
+    item_table = Table(rows, colWidths=[8 * mm, 22 * mm, 46 * mm, 22 * mm, 18 * mm, 22 * mm, 14 * mm, 22 * mm], repeatRows=1)
     item_table.setStyle(TableStyle([
         ("BACKGROUND", (0, 0), (-1, 0), TEAL),
         ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
@@ -315,20 +322,28 @@ def build_order_invoice_pdf(
     if has_exempt:
         elements.extend([Spacer(1, 2 * mm), Paragraph(NO_DISCOUNT_NOTE, muted)])
 
-    summary_rows = [
+    savings = round(max(0.0, list_total - products_total), 2)
+    summary_rows = []
+    if savings > 0:
+        summary_rows += [
+            ["ფასდაკლებამდე ფასი", _gel(round(list_total, 2))],
+            ["ფასდაკლება", "-" + _gel(savings)],
+        ]
+    summary_rows += [
         ["სულ პროდუქცია", _gel(products_total)],
         ["ტრანსპორტირების ღირებულება", _gel(transport)],
         ["საბოლოო ჯამი", _gel(grand_total)],
         ["მათ შორის დღგ (18%)" if vat_registered else "მათ შორის დღგ (არ არის დღგ-ს გადამხდელი)", _gel(vat_amount)],
     ]
+    final_row = len(summary_rows) - 2
     summary = Table(summary_rows, colWidths=[85 * mm, 34 * mm], hAlign="RIGHT")
     summary.setStyle(TableStyle([
         ("FONTNAME", (0, 0), (-1, -1), FONT_NAME),
         ("FONTSIZE", (0, 0), (-1, -1), 8),
         ("ALIGN", (1, 0), (1, -1), "RIGHT"),
-        ("LINEABOVE", (0, 2), (-1, 2), 0.8, TEAL),
-        ("BACKGROUND", (0, 2), (-1, 2), LIGHT),
-        ("TEXTCOLOR", (0, 2), (-1, 2), TEAL),
+        ("LINEABOVE", (0, final_row), (-1, final_row), 0.8, TEAL),
+        ("BACKGROUND", (0, final_row), (-1, final_row), LIGHT),
+        ("TEXTCOLOR", (0, final_row), (-1, final_row), TEAL),
         ("TOPPADDING", (0, 0), (-1, -1), 4),
         ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
     ]))

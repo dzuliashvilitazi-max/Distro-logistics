@@ -12,6 +12,7 @@ import bcrypt
 import logging
 import math
 import asyncio
+import copy
 import time
 import traceback
 from datetime import date, datetime, timezone, timedelta
@@ -807,6 +808,7 @@ class OrderItem(BaseModel):
     supplier_id: str
     quantity: int = Field(ge=1)
     unit_price: float = Field(ge=0)
+    list_price: Optional[float] = Field(default=None, ge=0)  # undiscounted unit price, set server-side
 
 class OrderIn(BaseModel):
     items: List[OrderItem]
@@ -1228,6 +1230,31 @@ def gateway_credentials(settings: dict, gateway: str) -> Optional[dict]:
 
 def is_external_order(o: dict) -> bool:
     return o.get("source") == "external" or bool(o.get("external_order"))
+
+
+COMMISSION_ORDER_FIELDS = (
+    "service_fee", "fee_payer", "fee_type", "fee_value", "fee_source", "commission_amount",
+    "commission_status", "commission_settled", "supplier_payout", "platform_split",
+)
+
+
+def hide_commission_from_store(order: dict) -> dict:
+    return {key: value for key, value in order.items() if key not in COMMISSION_ORDER_FIELDS}
+
+
+def commission_breakdown(order: dict) -> dict:
+    """Base amount, platform commission and the distributor's net amount; for distributor/admin views only."""
+    base = moneylib.q(order.get("total"))
+    raw_fee = order.get("commission_amount")
+    fee = moneylib.q(raw_fee if raw_fee is not None else order.get("service_fee"))
+    return {
+        "base_amount": moneylib.as_json(base),
+        "commission": moneylib.as_json(fee),
+        "distributor_net": moneylib.as_json(base - fee),
+        "fee_type": order.get("fee_type"),
+        "fee_value": order.get("fee_value"),
+        "fee_payer": order.get("fee_payer"),
+    }
 
 
 def compute_platform_split(amount, settings: dict, source: str = "app") -> Optional[dict]:
@@ -4056,6 +4083,7 @@ async def create_order(body: OrderIn, user: dict = Depends(require_store_permiss
     product_docs = await db.products.find(
         {"id": {"$in": requested_product_ids}}, {"_id": 0},
     ).to_list(len(requested_product_ids) or 1)
+    raw_products = {product["id"]: copy.deepcopy(product) for product in product_docs}
     priced_products = {
         product["id"]: product for product in await _apply_partner_pricing(product_docs, owner_id)
     }
@@ -4076,6 +4104,7 @@ async def create_order(body: OrderIn, user: dict = Depends(require_store_permiss
             "name": product.get("name", submitted_item.name),
             "image": product.get("image", submitted_item.image),
             "unit_price": store_order_unit_price(product, submitted_item.quantity),
+            "list_price": store_order_unit_price(raw_products[submitted_item.product_id], submitted_item.quantity),
         }))
     frozen = await db.users.find({"id": {"$in": list(supplier_ids)}, "billing_frozen": True}, {"_id": 0}).to_list(100)
     if frozen:
@@ -4235,7 +4264,7 @@ async def create_order(body: OrderIn, user: dict = Depends(require_store_permiss
                 sid, f"მოგივიდა ახალი შეკვეთა! №{order['order_no']} — {user['business_name']}, ჯამი: ₾{total:.2f}.",
                 "order", order_id=oid,
             )
-        created.append(clean(order))
+        created.append(hide_commission_from_store(clean(order)))
     return {"orders": created, "paid": online, "charged": grand_total if online else 0}
 
 
@@ -4477,12 +4506,16 @@ async def _start_bank_checkout(gateway: str, body: OrderIn, request: Request, us
             raise HTTPException(409, f"Insufficient stock for {product['name']}.")
         products[item.product_id] = product
 
+    raw_products = copy.deepcopy(products)
     priced_products = await _apply_partner_pricing(list(products.values()), owner_id)
     products = {
         product["id"]: {
             **product,
             "checkout_unit_price": store_order_unit_price(
                 product, next(item.quantity for item in body.items if item.product_id == product["id"]),
+            ),
+            "checkout_list_price": store_order_unit_price(
+                raw_products[product["id"]], next(item.quantity for item in body.items if item.product_id == product["id"]),
             ),
         }
         for product in priced_products
@@ -4515,6 +4548,7 @@ async def _start_bank_checkout(gateway: str, body: OrderIn, request: Request, us
             "image": products[item.product_id].get("image", ""),
             "supplier_id": supplier_id, "quantity": item.quantity,
             "unit_price": products[item.product_id]["checkout_unit_price"],
+            "list_price": products[item.product_id]["checkout_list_price"],
         } for item in order_items]
         total_decimal = moneylib.total_sum(
             moneylib.dec(item["unit_price"]) * item["quantity"] for item in normalized_items
@@ -4750,6 +4784,12 @@ async def list_orders(
         d.setdefault("payment_entries", [])
         d.update(order_payment_fields(d))
         d["lifecycle_status"] = lifecycle_status(d)
+    if user["role"] == "retailer":
+        docs = [hide_commission_from_store(d) for d in docs]
+    else:
+        for d in docs:
+            if not is_external_order(d):
+                d["commission_breakdown"] = commission_breakdown(d)
     return await _attach_supplier_logos(docs)
 
 
@@ -4774,7 +4814,7 @@ async def list_store_purchase_orders(
         {"retailer_id": owner_id, "supplier_id": {"$in": supplier_ids}}, {"_id": 0},
     ).to_list(len(supplier_ids)) if supplier_ids else []
     terms_by_supplier = {term["supplier_id"]: term for term in terms}
-    return [finance_order_view(order, terms_by_supplier.get(order.get("supplier_id"))) for order in orders]
+    return [hide_commission_from_store(finance_order_view(order, terms_by_supplier.get(order.get("supplier_id")))) for order in orders]
 
 
 @api.get("/store/branches")
@@ -9561,7 +9601,11 @@ async def get_logo(user_id: str):
 # ---------- platform settings (service fee) ----------
 @api.get("/settings")
 async def read_settings(user: dict = Depends(get_current_user)):
-    return public_settings(await get_settings())
+    settings = public_settings(await get_settings())
+    if user.get("role") != "admin":
+        for field in ("fee_type", "fee_value", "fee_payer", "payment_split_enabled"):
+            settings.pop(field, None)
+    return settings
 
 
 @api.get("/admin/settings")
