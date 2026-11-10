@@ -2,13 +2,13 @@ import { useEffect, useState } from "react";
 import { Building2, Loader2, MapPin, Search, Send, Store } from "lucide-react";
 import { api, requestErrorMessage } from "@/lib/api";
 import { GEORGIAN_CITIES } from "@/lib/cities";
-import { normalizeEntityType } from "@/lib/businessEntity";
+import { ESTABLISHMENT_TYPES, normalizeEntityType } from "@/lib/businessEntity";
 import { useI18n } from "@/context/I18nContext";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
 
-const SECTORS = ["grocery", "zoo", "household", "laundry", "restaurant_cafe_bar", "hotel_hostel", "office_company", "other"];
+const SECTORS = ESTABLISHMENT_TYPES;
 
 export default function StoreDiscovery() {
   const { t } = useI18n();

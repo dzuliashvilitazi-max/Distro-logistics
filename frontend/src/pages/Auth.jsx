@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
 import { BusinessSectorCheckboxes } from "@/components/BusinessSectorCheckboxes";
+import { ESTABLISHMENT_TYPES } from "@/lib/businessEntity";
 import { CityMultiSelect } from "@/components/CityMultiSelect";
 import { GEORGIAN_BANKS, normalizeIban, isValidGeIban } from "@/lib/banks";
 import { cn } from "@/lib/utils";
@@ -184,7 +185,7 @@ export default function Auth({ mode }) {
                   <>
                     <div><Label htmlFor="est">{t("reg.establishmentType")}</Label>
                       <select id="est" value={form.establishment_type} onChange={set("establishment_type")} data-testid="register-establishment" className="mt-1.5 h-10 w-full rounded-md border border-input bg-background px-3 text-sm">
-                        {["grocery", "zoo", "household", "laundry", "restaurant_cafe_bar", "hotel_hostel", "office_company", "other"].map((e) => <option key={e} value={e}>{t(`est.${e}`)}</option>)}
+                        {ESTABLISHMENT_TYPES.map((e) => <option key={e} value={e}>{t(`est.${e}`)}</option>)}
                       </select>
                     </div>
                     {form.establishment_type === "other" && (

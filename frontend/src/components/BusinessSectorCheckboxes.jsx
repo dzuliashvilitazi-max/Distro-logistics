@@ -1,17 +1,9 @@
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { useI18n } from "@/context/I18nContext";
+import { ESTABLISHMENT_TYPES } from "@/lib/businessEntity";
 
-const sectors = [
-  "grocery",
-  "zoo",
-  "household",
-  "laundry",
-  "restaurant_cafe_bar",
-  "hotel_hostel",
-  "office_company",
-  "other",
-];
+const sectors = ESTABLISHMENT_TYPES;
 
 export function BusinessSectorCheckboxes({ value = [], onChange, idPrefix = "sector" }) {
   const { t } = useI18n();
@@ -23,9 +15,9 @@ export function BusinessSectorCheckboxes({ value = [], onChange, idPrefix = "sec
   return (
     <section className="rounded-lg border border-border p-4" data-testid="business-sector-checkboxes">
       <Label className="text-sm font-semibold">{t("auth.servedSectors")}</Label>
-      <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
+      <div className="mt-3 grid max-h-72 grid-cols-1 gap-3 overflow-y-auto pr-1 sm:grid-cols-2">
         {sectors.map((sector) => (
-          <div key={sector} className="flex items-center gap-2">
+          <div key={sector} className="flex min-h-8 items-start gap-2">
             <Checkbox
               id={`${idPrefix}-${sector}`}
               checked={value.includes(sector)}
