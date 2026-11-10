@@ -33,6 +33,7 @@ const StorePricing = lazyPage(() => import("@/pages/retailer/StorePricing"));
 const StoreStaff = lazyPage(() => import("@/pages/retailer/StoreStaff"));
 const StoreDistributors = lazyPage(() => import("@/pages/retailer/StoreDistributors"));
 const SupplierStores = lazyPage(() => import("@/pages/supplier/SupplierStores"));
+const SupplierPromotions = lazyPage(() => import("@/pages/supplier/SupplierPromotions"));
 const StoreDiscovery = lazyPage(() => import("@/pages/supplier/StoreDiscovery"));
 const SupplierPriceNegotiations = lazyPage(() => import("@/pages/supplier/PriceNegotiations"));
 const StorePriceNegotiations = lazyPage(() => import("@/pages/retailer/PriceNegotiations"));
@@ -129,6 +130,7 @@ function App() {
               <Route path="/profit-calculator" element={<Page roles={["retailer"]} storePermission="canChangePrices"><StorePricing /></Page>} />
               <Route path="/pos" element={<Page roles={["retailer"]} storePermission="canManageApi"><StoreIntegrations /></Page>} />
               <Route path="/distributor/stores" element={<Page roles={["supplier"]} supplierOwnerOnly><SupplierStores /></Page>} />
+              <Route path="/distributor/promotions" element={<Page roles={["supplier"]} supplierOwnerOnly><SupplierPromotions /></Page>} />
               <Route path="/supplier/store-discovery" element={<Page roles={["supplier"]} supplierOwnerOnly><StoreDiscovery /></Page>} />
               <Route path="/supplier/price-negotiations" element={<Page roles={["supplier"]} supplierOwnerOnly><SupplierPriceNegotiations /></Page>} />
 

@@ -53,6 +53,7 @@ const NAV = {
     { to: "/supplier/orders", key: "orders", testid: "nav-orders", icon: ClipboardList },
     { to: "/supplier/returns", key: "returns", testid: "nav-supplier-returns", icon: RotateCcw },
     { to: "/distributor/stores", key: "myStores", testid: "nav-my-stores", icon: Store },
+    { to: "/distributor/promotions", label: "აქციები", testid: "nav-promotions", icon: Megaphone },
     { to: "/supplier/store-discovery", key: "storeDiscovery", testid: "nav-store-discovery", icon: Globe },
     { to: "/supplier/price-negotiations", key: "priceNegotiations", testid: "nav-supplier-negotiations", icon: Tags },
     { to: "/supplier/routes", key: "routes", testid: "nav-routes", icon: Route },
@@ -408,7 +409,7 @@ export function AppLayout({ children }) {
     }
     if (user.role !== "supplier" || isSupplierOwner) return true;
     if (item.to === "/supplier") return supplierPermissions.has("orders");
-    if (["/supplier/invoices", "/supplier/warehouses", "/supplier/staff", "/distributor/stores", "/supplier/store-discovery",
+    if (["/supplier/invoices", "/supplier/warehouses", "/supplier/staff", "/distributor/stores", "/distributor/promotions", "/supplier/store-discovery",
       "/supplier/price-negotiations"].includes(item.to)) return false;
     if (item.to === "/supplier/inventory") return supplierPermissions.has("inventory");
     if (item.to === "/supplier/orders") return supplierPermissions.has("orders");
