@@ -4166,11 +4166,14 @@ async def create_order(body: OrderIn, user: dict = Depends(require_store_permiss
         chosen = next((c for c in saved_cards if c["id"] == body.card_id), None) if body.card_id else saved_cards[0]
         if not chosen:
             raise HTTPException(400, "Selected card was not found.")
-        try:
-            charge_id = simulate_charge(chosen.get("sim_status", "ok"), grand_total)
-        except CardError as e:
-            raise HTTPException(402, f"Payment failed: {e}")
-    created = []
+    checkout_id = str(uuid.uuid4())
+    # Everything that can reject the checkout runs before the card is charged.
+    suppliers_by_id = {}
+    for sid in supplier_ids:
+        supplier = await db.users.find_one({"id": sid})
+        if not supplier or supplier.get("role") != "supplier":
+            raise HTTPException(404, "A selected distributor was not found.")
+        suppliers_by_id[sid] = supplier
     routing_address = await _store_routing_address(user, branch_id, delivery_address)
     warehouse_by_supplier = {}
     for sid in supplier_ids:
@@ -4180,20 +4183,27 @@ async def create_order(body: OrderIn, user: dict = Depends(require_store_permiss
         if (store_city and getattr(db, "supplier_warehouses", None) is not None
                 and not warehouse_by_supplier[sid]):
             raise HTTPException(409, "This distributor has no active warehouse serving your store's city.")
-    for sid in supplier_ids:
+    reserved = await deduct_inventory(
+        [{"supplier_id": i.supplier_id, "product_id": i.product_id,
+          "warehouse_id": warehouse_by_supplier[i.supplier_id], "quantity": i.quantity}
+         for i in canonical_items],
+        sale_source="app", reference=checkout_id,
+        out_of_stock_detail="Regional warehouse stock changed. Refresh availability and try again.",
+    )
+    if online:
+        try:
+            charge_id = simulate_charge(chosen.get("sim_status", "ok"), grand_total)
+        except CardError as e:
+            await restore_inventory(reserved)
+            raise HTTPException(402, f"Payment failed: {e}")
+    created = []
+    try:
+      for sid in supplier_ids:
         items = [i for i in canonical_items if i.supplier_id == sid]
         total_decimal = moneylib.total_sum(moneylib.dec(i.unit_price) * i.quantity for i in items)
         total = moneylib.as_json(total_decimal)
-        supplier = await db.users.find_one({"id": sid})
-        if not supplier or supplier.get("role") != "supplier":
-            raise HTTPException(404, "A selected distributor was not found.")
+        supplier = suppliers_by_id[sid]
         warehouse_id = warehouse_by_supplier[sid]
-        await deduct_inventory(
-            [{"supplier_id": sid, "product_id": i.product_id, "warehouse_id": warehouse_id, "quantity": i.quantity}
-             for i in items],
-            sale_source="app",
-            out_of_stock_detail="Regional warehouse stock changed. Refresh availability and try again.",
-        )
         store_doc = await db.users.find_one({"id": owner_id}, {"_id": 0}) or user
         commission = resolve_commission(settings, store_doc, supplier)
         fee = compute_fee(total, commission)
@@ -4201,7 +4211,7 @@ async def create_order(body: OrderIn, user: dict = Depends(require_store_permiss
         oid = str(uuid.uuid4())
         transfer_reference = await _next_payment_reference() if bank_transfer else ""
         order = {
-            "id": oid, "order_no": "ORD-" + oid[:8].upper(), "source": "app",
+            "id": oid, "order_no": "ORD-" + oid[:8].upper(), "source": "app", "checkout_id": checkout_id,
             "retailer_id": owner_id, "retailer_name": user["business_name"],
             "retailer_tax_id": user.get("identification_number", ""),
             "retailer_establishment": user.get("establishment_type", ""),
@@ -4244,6 +4254,7 @@ async def create_order(body: OrderIn, user: dict = Depends(require_store_permiss
                 "supplier_id": sid, "supplier_name": order["supplier_name"],
                 "retailer_name": user["business_name"], "order_total": total, "commission": fee,
                 "supplier_payout": payout, "currency": "GEL", "method": "checkout_card",
+                "checkout_id": checkout_id, "bank_account_snapshot": order["bank_account_snapshot"],
                 "status": "settled", "created_at": now_iso(),
             })
         await db.orders.insert_one(dict(order))
@@ -4268,7 +4279,17 @@ async def create_order(body: OrderIn, user: dict = Depends(require_store_permiss
                 "order", order_id=oid,
             )
         created.append(hide_commission_from_store(clean(order)))
-    return {"orders": created, "paid": online, "charged": grand_total if online else 0}
+    except Exception:
+        await restore_inventory(reserved)
+        await db.orders.delete_many({"checkout_id": checkout_id})
+        await db.payouts.delete_many({"checkout_id": checkout_id})
+        if charge_id:
+            await log_financial_event(
+                "checkout_failed_refund_required", user, "checkout", checkout_id,
+                status="error", charge_id=charge_id, amount=grand_total,
+            )
+        raise
+    return {"checkout_id": checkout_id, "orders": created, "paid": online, "charged": grand_total if online else 0}
 
 
 def _bank_terminal_status(status: str) -> str:
@@ -4377,6 +4398,7 @@ async def _apply_bank_payment_result(payment: dict, provider_payment: dict) -> s
                 "retailer_name": order["retailer_name"], "order_total": moneylib.as_json(order_total),
                 "commission": moneylib.as_json(fee), "supplier_payout": moneylib.as_json(payout), "currency": "GEL",
                 "method": f"{gateway}_checkout", "status": "settled", "created_at": now_iso(),
+                "checkout_id": payment["id"], "bank_account_snapshot": order.get("bank_account_snapshot"),
             }}, upsert=True)
             await notify(
                 order["supplier_id"],
@@ -4580,7 +4602,7 @@ async def _start_bank_checkout(gateway: str, body: OrderIn, request: Request, us
             "delivery_window": body.delivery_window or "",
             "timeline": [{"status": "Pending", "at": now_iso()}],
             "created_at": now_iso(), "updated_at": now_iso(),
-            f"{gateway}_payment_id": payment_id,
+            f"{gateway}_payment_id": payment_id, "checkout_id": payment_id,
         })
     amount = moneylib.as_json(moneylib.total_sum(order.get("total") for order in order_documents))
     return_url = f"{frontend_url}/orders?payment_id={payment_id}&payment_gateway={gateway}"

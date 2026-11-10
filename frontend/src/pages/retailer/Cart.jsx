@@ -43,6 +43,16 @@ export default function Cart() {
   }, []);
   const lines = useMemo(() => items.map((i) => ({ ...i, unit: tierPrice(i, i.quantity), subtotal: tierPrice(i, i.quantity) * i.quantity })), [items]);
   const total = lines.reduce((s, l) => s + l.subtotal, 0);
+  const groups = useMemo(() => {
+    const bySupplier = new Map();
+    for (const l of lines) {
+      if (!bySupplier.has(l.supplier_id)) bySupplier.set(l.supplier_id, { id: l.supplier_id, name: l.supplier_name, lines: [], subtotal: 0 });
+      const group = bySupplier.get(l.supplier_id);
+      group.lines.push(l);
+      group.subtotal += l.subtotal;
+    }
+    return [...bySupplier.values()];
+  }, [lines]);
 
   const checkout = async () => {
     if (!address.trim()) { toast.error(t("checkout.enterAddress")); return; }
@@ -134,8 +144,14 @@ export default function Cart() {
     <div>
       <h1 className="mb-6 text-2xl font-bold tracking-tight sm:text-3xl">{t("checkout.cartTitle")}</h1>
       <div className="grid gap-6 lg:grid-cols-12">
-        <div className="space-y-3 lg:col-span-7">
-          {lines.map((l) => (
+        <div className="space-y-5 lg:col-span-7">
+          {groups.map((group) => (
+            <section key={group.id} data-testid={`cart-group-${group.id}`} className="space-y-3">
+              <div className="flex items-center justify-between rounded-lg bg-secondary/50 px-4 py-2">
+                <h2 className="text-sm font-semibold">{group.name}</h2>
+                <span className="font-mono text-xs text-muted-foreground" data-testid={`cart-group-total-${group.id}`}>₾{group.subtotal.toFixed(2)}</span>
+              </div>
+          {group.lines.map((l) => (
             <div key={l.product_id} data-testid={`cart-item-${l.product_id}`} className="flex gap-4 rounded-xl border border-border bg-card p-4">
               <ProductImage image={l.image} name={l.name} alt={l.name} className="h-20 w-20 shrink-0 rounded-lg border border-border object-cover" />
               <div className="min-w-0 flex-1">
@@ -153,6 +169,8 @@ export default function Cart() {
                 <p className="text-lg font-bold">₾{l.subtotal.toFixed(2)}</p>
               </div>
             </div>
+          ))}
+            </section>
           ))}
         </div>
 
@@ -200,6 +218,7 @@ export default function Cart() {
             <div><Label htmlFor="notes">{t("checkout.orderNotes")}</Label><Textarea id="notes" value={notes} onChange={(e) => setNotes(e.target.value)} className="mt-1.5" rows={2} data-testid="checkout-notes" placeholder={t("checkout.notesPlaceholder")} /></div>
             <div className="border-t border-border pt-3">
               <div className="flex items-center justify-between text-sm text-muted-foreground"><span>{t("checkout.items")}</span><span>{lines.length}</span></div>
+              {groups.length > 1 && <p className="mt-1 text-xs text-muted-foreground" data-testid="split-notice">შეკვეთა ავტომატურად გაიყოფა {groups.length} დისტრიბუტორზე — თითოეულს ექნება საკუთარი ინვოისი და თანხა.</p>}
               <div className="mt-2 flex items-center justify-between"><span className="text-base font-semibold">{t("checkout.orderTotal")}</span><span className="text-2xl font-extrabold" data-testid="cart-total">₾{total.toFixed(2)}</span></div>
             </div>
             <Button className="h-12 w-full text-base" onClick={checkout} disabled={placing} data-testid="place-order-btn">
