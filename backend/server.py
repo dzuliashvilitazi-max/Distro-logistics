@@ -5,6 +5,7 @@ load_dotenv(Path(__file__).parent / '.env')
 import os
 import re
 import base64
+import ipaddress
 import uuid
 import json
 import jwt
@@ -4815,7 +4816,10 @@ async def list_orders(
     else:
         for d in docs:
             if not is_external_order(d):
-                d["commission_breakdown"] = commission_breakdown(d)
+                try:
+                    d["commission_breakdown"] = commission_breakdown(d)
+                except moneylib.MoneyError:
+                    logger.warning("Order %s has an invalid amount; commission breakdown omitted", d.get("id"))
     return await _attach_supplier_logos(docs)
 
 
@@ -6005,7 +6009,14 @@ async def share_order_invoice(
     if user["role"] == "retailer":
         if order.get("retailer_id") != store_owner_id(user):
             raise HTTPException(404, "Order not found.")
+        if not effective_store_permissions(user)["canViewFinancials"]:
+            raise HTTPException(403, "Permission required: canViewFinancials")
+        if user.get("store_access_role", "global_admin") != "global_admin":
+            assigned_branch_id = user.get("assigned_branch_id")
+            if not assigned_branch_id or order.get("branch_id") != assigned_branch_id:
+                raise HTTPException(404, "Order not found.")
     elif user["role"] == "supplier":
+        require_supplier_permission(user, "finance")
         if order.get("supplier_id") != supplier_owner_id(user):
             raise HTTPException(404, "Order not found.")
     else:
@@ -9608,6 +9619,21 @@ class PushKeysIn(BaseModel):
 class PushSubscriptionIn(BaseModel):
     endpoint: str = Field(min_length=10, max_length=2048)
     keys: PushKeysIn
+
+    @field_validator("endpoint")
+    @classmethod
+    def endpoint_must_be_public_https(cls, value: str) -> str:
+        # The server POSTs to this URL, so internal or literal-IP targets would be an SSRF vector.
+        parsed = urlsplit(value)
+        host = (parsed.hostname or "").lower()
+        try:
+            ipaddress.ip_address(host)
+            is_ip = True
+        except ValueError:
+            is_ip = False
+        if parsed.scheme != "https" or "." not in host or is_ip or host.endswith((".local", ".internal", ".localhost")):
+            raise ValueError("Push endpoint must be a public HTTPS URL.")
+        return value
 
 
 class PushUnsubscribeIn(BaseModel):

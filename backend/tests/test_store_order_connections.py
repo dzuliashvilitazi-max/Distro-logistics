@@ -42,6 +42,8 @@ def order_client(monkeypatch):
     monkeypatch.setattr(server, "resolve_store_branch", lambda *_args: asyncio.sleep(0, result="branch-1"))
     monkeypatch.setattr(server, "_store_city", lambda *_args: asyncio.sleep(0, result=None))
     monkeypatch.setattr(server, "_store_routing_address", lambda *_args: asyncio.sleep(0, result="Store address"))
+    monkeypatch.setattr(server, "_store_branch_delivery_location", lambda *_args: asyncio.sleep(
+        0, result=("Store address", {"lat": 41.7, "lng": 44.8}, None)))
     monkeypatch.setattr(server, "_warehouse_for_supplier_location", lambda *_args: asyncio.sleep(0, result=None))
     monkeypatch.setattr(server, "deduct_inventory", lambda *_args, **_kwargs: asyncio.sleep(0, result=[]))
     monkeypatch.setattr(server, "log_financial_event", lambda *_args, **_kwargs: asyncio.sleep(0))

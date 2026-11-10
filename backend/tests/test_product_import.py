@@ -302,7 +302,7 @@ def test_upload_persists_refreshes_updates_and_preserves_unrelated_products():
         imported_product = next(item for item in refreshed.json() if item["sku"] == "TEA-1")
         assert imported_product["stock"] == 30
         assert imported_product["moq"] == 2
-        assert imported_product["image"].startswith("https://loremflickr.com/")
+        assert imported_product["image"] == "" and imported_product["image_status"] == "pending"
         assert "ქართული ჩაი" in imported_product["description"]
 
         changed_bytes = _csv_bytes([["ქართული ჩაი", 14, 45, 3, "TEA-1"]],
@@ -425,7 +425,7 @@ def test_manual_product_crud_persists_and_checks_supplier_ownership():
         assert created.status_code == 200
         product_id = created.json()["id"]
         assert created.json()["category_id"] == database.categories.rows[0]["id"]
-        assert created.json()["image"].startswith("https://loremflickr.com/")
+        assert created.json()["image"] == "" and created.json()["image_status"] == "pending"
         assert "Manual tea" in created.json()["description"]
 
         loaded = client.get("/api/products", params={"supplier_id": "supplier-import-test"})
