@@ -28,6 +28,7 @@ PUSH_TITLES = {
     "negotiation_accepted": "ფასზე შეთანხმება",
     "negotiation_rejected": "ფასის მოთხოვნა უარყოფილია",
     "product_offer": "სპეციალური შეთავაზება",
+    "promo": "ახალი აქცია",
     "connection_request": "პარტნიორობის მოთხოვნა",
     "connection_approved": "პარტნიორობა დადასტურდა",
     "connection_declined": "პარტნიორობა უარყოფილია",

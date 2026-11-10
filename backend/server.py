@@ -2556,6 +2556,7 @@ async def list_products(category: Optional[str] = None, supplier_id: Optional[st
         ]
     if user and user.get("role") == "retailer":
         docs = await _apply_partner_pricing(docs, store_owner_id(user))
+        docs.sort(key=lambda p: not p.get("is_promo"))  # stable: promos first
     for product in docs:
         product.pop("applied_return_ids", None)
     return await _attach_supplier_logos(docs)
@@ -2662,6 +2663,44 @@ async def _expire_product_offers(
             await history.insert_one(_offer_history_event(offer, "expired", None, now))
 
 
+def _promo_ts(value: datetime) -> str:
+    # Fixed-width UTC format so lexicographic comparison equals chronological comparison.
+    return value.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f+00:00")
+
+
+async def expire_product_promotions(distributor_ids: Optional[List[str]] = None) -> int:
+    """Close promotions whose end time has passed; prices/positions revert because nothing else was mutated."""
+    query = {"status": {"$in": ["scheduled", "active"]}, "ends_at": {"$lte": _promo_ts(datetime.now(timezone.utc))}}
+    if distributor_ids is not None:
+        query["distributor_id"] = {"$in": distributor_ids}
+    result = await db.product_promotions.update_many(
+        query, {"$set": {"status": "expired", "updated_at": now_iso()}},
+    )
+    return result.modified_count
+
+
+async def _active_promotions(distributor_ids: List[str]) -> dict:
+    if not distributor_ids or getattr(db, "product_promotions", None) is None:
+        return {}
+    now = _promo_ts(datetime.now(timezone.utc))
+    rows = await db.product_promotions.find({
+        "distributor_id": {"$in": distributor_ids}, "status": {"$in": ["scheduled", "active"]},
+        "starts_at": {"$lte": now}, "ends_at": {"$gt": now},
+    }, {"_id": 0}).to_list(50000)
+    return {row["product_id"]: row for row in rows}
+
+
+async def promotion_expiry_loop():
+    while True:
+        try:
+            await expire_product_promotions()
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception("Promotion expiry run failed")
+        await asyncio.sleep(60)
+
+
 async def _apply_partner_pricing(products: List[dict], store_id: str) -> List[dict]:
     """Expose list prices to all stores; apply private terms only after approval."""
     connections = await db.store_distributor_connections.find(
@@ -2689,6 +2728,7 @@ async def _apply_partner_pricing(products: List[dict], store_id: str) -> List[di
         }, {"_id": 0, "distributor_id": 1, "product_id": 1, "offer_price": 1,
             "created_at": 1, "expiresAt": 1}).to_list(5000)
         offers = {(offer["distributor_id"], offer["product_id"]): offer for offer in active_offers}
+    promos = await _active_promotions(list(approved))
     for product in products:
         distributor_id = product.get("supplier_id")
         if distributor_id not in approved:
@@ -2702,6 +2742,7 @@ async def _apply_partner_pricing(products: List[dict], store_id: str) -> List[di
             continue
         base_price = moneylib.q(product.get("price_per_unit") or 0)
         offer = offers.get((distributor_id, product["id"]))
+        has_personal_price = True
         if offer:
             price = moneylib.q(offer["offer_price"])
             product["tier_pricing"] = []
@@ -2713,12 +2754,26 @@ async def _apply_partner_pricing(products: List[dict], store_id: str) -> List[di
             price = custom[product["id"]]
             product["tier_pricing"] = []
         else:
+            has_personal_price = approved[distributor_id] > 0
             factor = Decimal(1) - approved[distributor_id] / Decimal(100)
             price = moneylib.q(base_price * factor)
             product["tier_pricing"] = [
                 {**t, "price": moneylib.as_json(moneylib.q(moneylib.dec(t.get("price", 0)) * factor))}
                 for t in product.get("tier_pricing") or []
             ]
+        promo = promos.get(product["id"])
+        product["is_promo"] = False
+        if promo:
+            promo_price = moneylib.q(promo["promo_price"])
+            product["is_promo"] = True
+            product["active_promotion"] = {
+                "promo_price": moneylib.as_json(promo_price), "starts_at": promo.get("starts_at"),
+                "ends_at": promo.get("ends_at"),
+            }
+            # A store's own lower price is kept; otherwise the promo price applies.
+            if not has_personal_price or price >= promo_price:
+                price = promo_price
+                product["tier_pricing"] = []
         product["base_price"] = moneylib.as_json(base_price)
         product["price"] = moneylib.as_json(price)
         product["price_per_unit"] = moneylib.as_json(price)
@@ -3178,6 +3233,120 @@ async def cancel_product_offer(offer_id: str, user: dict = Depends(require_role(
         "product_offer_cancelled", product_id=offer["product_id"], distributor_id=distributor_id,
     )
     return {"ok": True, "status": "cancelled"}
+
+
+class PromotionIn(BaseModel):
+    product_id: str = Field(min_length=1)
+    promo_price: float = Field(gt=0)
+    starts_at: datetime
+    ends_at: datetime
+
+    @model_validator(mode="after")
+    def _valid_window(self):
+        if self.starts_at.tzinfo is None or self.ends_at.tzinfo is None:
+            raise ValueError("Promotion dates must include a timezone.")
+        if self.ends_at <= self.starts_at:
+            raise ValueError("Promotion end must be after its start.")
+        if self.ends_at <= datetime.now(timezone.utc):
+            raise ValueError("Promotion end must be in the future.")
+        return self
+
+
+@api.get("/supplier/promotions")
+async def list_promotions(user: dict = Depends(require_role("supplier"))):
+    distributor_id = _require_distributor_owner(user)
+    await expire_product_promotions([distributor_id])
+    rows = await db.product_promotions.find(
+        {"distributor_id": distributor_id}, {"_id": 0},
+    ).sort("created_at", -1).to_list(2000)
+    product_ids = list({row["product_id"] for row in rows})
+    products = {
+        p["id"]: p for p in await db.products.find(
+            {"id": {"$in": product_ids}}, {"_id": 0, "id": 1, "name": 1, "price_per_unit": 1},
+        ).to_list(len(product_ids) or 1)
+    }
+    for row in rows:
+        product = products.get(row["product_id"], {})
+        row["product_name"] = product.get("name", row["product_id"])
+        row["base_price"] = product.get("price_per_unit")
+    return rows
+
+
+@api.post("/supplier/promotions", status_code=201)
+async def create_promotion(body: PromotionIn, user: dict = Depends(require_role("supplier"))):
+    distributor_id = _require_distributor_owner(user)
+    product = await db.products.find_one(
+        {"id": body.product_id, "supplier_id": distributor_id}, {"_id": 0, "id": 1, "price_per_unit": 1},
+    )
+    if not product:
+        raise HTTPException(404, "Product not found")
+    promo_price = moneylib.q(body.promo_price)
+    if promo_price >= moneylib.q(product.get("price_per_unit") or 0):
+        raise HTTPException(400, "Promo price must be lower than the regular price.")
+    now = now_iso()
+    await db.product_promotions.update_many(
+        {"distributor_id": distributor_id, "product_id": body.product_id, "status": {"$in": ["scheduled", "active"]}},
+        {"$set": {"status": "cancelled", "updated_at": now}},
+    )
+    promo = {
+        "id": str(uuid.uuid4()), "distributor_id": distributor_id, "product_id": body.product_id,
+        "promo_price": moneylib.as_json(promo_price),
+        "starts_at": _promo_ts(body.starts_at), "ends_at": _promo_ts(body.ends_at),
+        "status": "scheduled", "broadcast_at": None, "created_at": now, "updated_at": now,
+    }
+    await db.product_promotions.insert_one(dict(promo))
+    return promo
+
+
+@api.delete("/supplier/promotions/{promotion_id}")
+async def cancel_promotion(promotion_id: str, user: dict = Depends(require_role("supplier"))):
+    distributor_id = _require_distributor_owner(user)
+    result = await db.product_promotions.update_one(
+        {"id": promotion_id, "distributor_id": distributor_id, "status": {"$in": ["scheduled", "active"]}},
+        {"$set": {"status": "cancelled", "updated_at": now_iso()}},
+    )
+    if result.modified_count != 1:
+        raise HTTPException(404, "Active promotion not found.")
+    return {"ok": True, "status": "cancelled"}
+
+
+@api.post("/supplier/promotions/{promotion_id}/broadcast")
+async def broadcast_promotion(promotion_id: str, user: dict = Depends(require_role("supplier"))):
+    distributor_id = _require_distributor_owner(user)
+    await expire_product_promotions([distributor_id])
+    promo = await db.product_promotions.find_one(
+        {"id": promotion_id, "distributor_id": distributor_id}, {"_id": 0},
+    )
+    if not promo:
+        raise HTTPException(404, "Promotion not found")
+    if promo["status"] not in ("scheduled", "active"):
+        raise HTTPException(409, "Only a running or scheduled promotion can be broadcast.")
+    claimed = await db.product_promotions.update_one(
+        {"id": promotion_id, "broadcast_at": None}, {"$set": {"broadcast_at": now_iso()}},
+    )
+    if claimed.modified_count != 1:
+        raise HTTPException(409, "This promotion was already broadcast.")
+    product = await db.products.find_one(
+        {"id": promo["product_id"]}, {"_id": 0, "name": 1, "price_per_unit": 1},
+    ) or {}
+    distributor = await db.users.find_one(
+        {"id": distributor_id}, {"_id": 0, "business_name": 1, "name": 1},
+    ) or {}
+    distributor_name = distributor.get("business_name") or distributor.get("name") or "დისტრიბუტორმა"
+    connections = await db.store_distributor_connections.find(
+        {"distributor_id": distributor_id, "status": "APPROVED"}, {"_id": 0, "store_id": 1},
+    ).to_list(10000)
+    text = (
+        f"🔥 აქცია! {distributor_name}: {product.get('name', '')} — "
+        f"₾{float(product.get('price_per_unit') or 0):.2f} -> ₾{float(promo['promo_price']):.2f}. "
+        f"მოქმედებს {promo['ends_at'][:16].replace('T', ' ')}-მდე."
+    )
+    for connection in connections:
+        await notify(
+            connection["store_id"], text, "promo", product_id=promo["product_id"],
+            distributor_id=distributor_id, expires_at=promo["ends_at"],
+        )
+    return {"ok": True, "sent_count": len(connections)}
 
 
 async def _create_negotiated_order(negotiation: dict, final_price: float) -> dict:
@@ -11080,6 +11249,8 @@ async def ensure_startup_indexes():
             [("distributor_id", 1), ("store_id", 1), ("product_id", 1)], unique=True)),
         ("product_offer_history.timeline", db.product_offer_history.create_index(
             [("distributor_id", 1), ("store_id", 1), ("at", -1)])),
+        ("product_promotions.window", db.product_promotions.create_index(
+            [("distributor_id", 1), ("status", 1), ("ends_at", 1)])),
         ("products.supplier_id", db.products.create_index("supplier_id")),
         ("products.category", db.products.create_index([("category", 1), ("supplier_id", 1)])),
         ("market_price_benchmarks.fingerprint", db.market_price_benchmarks.create_index("fingerprint", unique=True)),
@@ -11270,6 +11441,7 @@ async def startup():
     app.state.index_task = asyncio.create_task(run_background_startup())
     if os.environ.get("BILLING_SCHEDULER", "1") != "0":
         app.state.billing_task = asyncio.create_task(billing_scheduler_loop())
+        app.state.promo_task = asyncio.create_task(promotion_expiry_loop())
 
 
 @app.on_event("shutdown")
@@ -11277,6 +11449,9 @@ async def shutdown():
     task = getattr(app.state, "billing_task", None)
     if task:
         task.cancel()
+    promo_task = getattr(app.state, "promo_task", None)
+    if promo_task:
+        promo_task.cancel()
     client.close()
     if audit_client is not None:
         audit_client.close()
